@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FPL Assistant</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green: #00ff87;
+      --green-dim: #00c96a;
+      --bg: #0a0e0a;
+      --card: #111711;
+      --border: #1e2b1e;
+      --text: #e8f5e8;
+      --muted: #6b8f6b;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    /* background grid */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.4;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      margin-bottom: 3rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 2rem;
+    }
+
+    .logo {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 4rem;
+      letter-spacing: 0.05em;
+      line-height: 1;
+      color: var(--green);
+    }
+
+    .logo span { color: var(--text); }
+
+    .tagline {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin-top: 0.4rem;
+    }
+
+    .input-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    .input-section h2 {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.4rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 1.2rem;
+      color: var(--green);
+    }
+
+    .input-row {
+      display: flex;
+      gap: 1rem;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1.2rem;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus { border-color: var(--green); }
+    input[type="text"]::placeholder { color: var(--muted); }
+
+    button {
+      background: var(--green);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      padding: 0.85rem 2rem;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.1rem;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    button:hover { background: var(--green-dim); }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.75rem;
+    }
+
+    .hint a { color: var(--green); text-decoration: none; }
+
+    /* squad info bar */
+    .squad-info {
+      display: none;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+
+    .squad-info.visible { display: flex; }
+
+    .info-pill {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1.2rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .info-pill strong { color: var(--green); font-size: 1.1rem; display: block; }
+
+    /* results */
+    .results-header {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.6rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 1.2rem;
+      display: none;
+    }
+
+    .results-header.visible { display: block; }
+
+    .recommendations { display: flex; flex-direction: column; gap: 1rem; }
+
+    .rec-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto;
+      align-items: center;
+      gap: 1rem;
+      opacity: 0;
+      transform: translateY(12px);
+      animation: fadeUp 0.4s forwards;
+    }
+
+    @keyframes fadeUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .player-out .label, .player-in .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }
+
+    .player-out .label { color: #ff6b6b; }
+    .player-in .label { color: var(--green); }
+
+    .player-name {
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+
+    .player-cost {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+
+    .arrow {
+      font-size: 1.4rem;
+      color: var(--muted);
+    }
+
+    .rec-stats {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.3rem;
+    }
+
+    .position-badge {
+      font-size: 0.7rem;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 0.08em;
+      background: var(--border);
+      color: var(--muted);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+    }
+
+    .improvement {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.5rem;
+      color: var(--green);
+      letter-spacing: 0.05em;
+    }
+
+    .cost-change {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .cost-change.cheaper { color: var(--green); }
+    .cost-change.pricier { color: #ff9f43; }
+
+    /* loading & error */
+    .status {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+      display: none;
+    }
+
+    .status.visible { display: block; }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid var(--border);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      color: #ff6b6b;
+      background: rgba(255,107,107,0.08);
+      border: 1px solid rgba(255,107,107,0.2);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+      margin-bottom: 1.5rem;
+      display: none;
+    }
+
+    .error-msg.visible { display: block; }
+
+    /* fixture ticker */
+    .fixture-section {
+      margin-bottom: 2rem;
+    }
+
+    .fixture-table {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .fixture-row {
+      display: grid;
+      grid-template-columns: 2rem 1fr 1fr repeat(5, 2.5rem);
+      align-items: center;
+      padding: 0.7rem 1.2rem;
+      border-bottom: 1px solid var(--border);
+      gap: 0.5rem;
+    }
+
+    .fixture-row:last-child { border-bottom: none; }
+
+    .fixture-row.header {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      padding: 0.5rem 1.2rem;
+    }
+
+    .fixture-row.bench-player {
+      opacity: 0.45;
+    }
+
+    .pos-badge {
+      font-size: 0.65rem;
+      font-family: 'Bebas Neue', sans-serif;
+      letter-spacing: 0.08em;
+      background: var(--border);
+      color: var(--muted);
+      padding: 0.15rem 0.3rem;
+      border-radius: 3px;
+      text-align: center;
+    }
+
+    .fixture-chip {
+      border-radius: 4px;
+      padding: 0.25rem 0.2rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.3;
+      cursor: default;
+    }
+
+    .diff-1 { background: #00a86b; color: #000; }
+    .diff-2 { background: #00ff87; color: #000; }
+    .diff-3 { background: #ffd700; color: #000; }
+    .diff-4 { background: #ff6b6b; color: #000; }
+    .diff-5 { background: #cc0000; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">FPL <span>Assistant</span></div>
+      <div class="tagline">AI-powered transfer recommendations for your squad</div>
+    </header>
+
+    <div class="input-section">
+      <h2>Enter Your Team</h2>
+      <div class="input-row">
+        <input type="text" id="teamId" placeholder="Your FPL Team ID (e.g. 230993)" />
+        <button id="analyseBtn" onclick="analyse()">Analyse</button>
+      </div>
+      <p class="hint">
+        Find your team ID by visiting <a href="https://fantasy.premierleague.com" target="_blank">fantasy.premierleague.com</a>
+        → Points → the number in the URL after /entry/
+      </p>
+    </div>
+
+    <div class="input-section" style="margin-bottom:2rem;">
+      <h2>Price Change Alerts</h2>
+      <button onclick="loadPriceChanges()" id="priceBtn">Check Price Changes</button>
+      <p class="hint">See which players are about to rise or fall in price across the entire game</p>
+    </div>
+
+    <div id="priceSection" style="display:none; margin-bottom:2rem;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+        <div>
+          <div class="results-header" style="display:block; margin-bottom:1rem; color:#00ff87;">⬆ Rising Soon</div>
+          <div id="risingPlayers"></div>
+        </div>
+        <div>
+          <div class="results-header" style="display:block; margin-bottom:1rem; color:#ff6b6b;">⬇ Falling Soon</div>
+          <div id="fallingPlayers"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="error-msg" id="errorMsg"></div>
+
+    <div class="squad-info" id="squadInfo">
+      <div class="info-pill"><strong id="squadValue">—</strong>Squad Value</div>
+      <div class="info-pill"><strong id="bankValue">—</strong>Bank</div>
+      <div class="info-pill"><strong id="gwValue">—</strong>Gameweek</div>
+    </div>
+
+    <div id="captainSection" style="display:none; margin-bottom:2rem;">
+      <div class="results-header" style="display:block; margin-bottom:1rem;">This Week's Picks</div>
+      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+        <div class="info-pill" id="captainPill"><strong id="captainName">—</strong>Captain</div>
+        <div class="info-pill" id="vcPill"><strong id="vcName">—</strong>Vice Captain</div>
+      </div>
+    </div>
+
+    <div id="benchSwapSection" style="display:none; margin-bottom:2rem;">
+      <div class="results-header" style="display:block; margin-bottom:1rem;">Suggested Lineup Changes</div>
+      <div id="benchSwaps"></div>
+    </div>
+
+    <div id="rollSection" style="display:none; margin-bottom:2rem;">
+      <div style="background:#1a1f1a; border:1px solid #2a3a2a; border-radius:12px; padding:1.2rem 1.5rem; color:#6b8f6b;">
+        💡 No strong transfers available this week — consider rolling your transfer
+      </div>
+    </div>
+
+    <div class="fixture-section" id="fixtureSection" style="display:none;">
+      <div class="results-header" style="display:block; margin-bottom:1rem;">Squad Fixture Ticker</div>
+      <div class="fixture-table">
+        <div class="fixture-row header">
+          <div></div>
+          <div>Player</div>
+          <div>Team</div>
+          <div style="grid-column: span 5; text-align:center;">Next 5 Fixtures</div>
+        </div>
+        <div id="fixtureTicker"></div>
+      </div>
+    </div>
+
+    <div id="differentialSection" style="display:none; margin-bottom:2rem;">
+      <div class="results-header" style="display:block; margin-bottom:1rem;">Differential Picks</div>
+      <p style="color:var(--muted); font-size:0.85rem; margin-bottom:1rem;">Low ownership players your algorithm rates highly this week — potential mini league winners</p>
+      <div id="differentialPlayers"></div>
+    </div>
+
+    <div class="results-header" id="resultsHeader">Top Transfer Recommendations</div>
+
+    <div class="status" id="loadingStatus">
+      <div class="spinner"></div>
+      Analysing your squad...
+    </div>
+
+    <div class="recommendations" id="recommendations"></div>
+  </div>
+
+  <script>
+    const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
+
+    async function analyse() {
+      const teamId = document.getElementById("teamId").value.trim();
+      if (!teamId) return;
+
+      setLoading(true);
+      clearResults();
+
+      try {
+        const res = await fetch(`/recommend?team_id=${teamId}`);
+        const data = await res.json();
+
+        if (data.error) throw new Error(data.error);
+
+        document.getElementById("squadValue").textContent = `£${data.squad_value}m`;
+        document.getElementById("bankValue").textContent = `£${data.bank}m`;
+        document.getElementById("gwValue").textContent = `GW${data.gameweek}`;
+        document.getElementById("squadInfo").classList.add("visible");
+        document.getElementById("resultsHeader").classList.add("visible");
+
+        if (data.captain && data.vice_captain) renderCaptains(data.captain, data.vice_captain);
+        if (data.bench_swaps && data.bench_swaps.length > 0) renderBenchSwaps(data.bench_swaps);
+        if (data.differentials && data.differentials.length > 0) renderDifferentials(data.differentials);
+        if (data.roll_transfer) document.getElementById("rollSection").style.display = "block";
+
+        renderRecommendations(data.recommendations);
+        loadFixtures(teamId);
+      } catch (err) {
+        showError(err.message || "Something went wrong. Check your team ID and try again.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    function renderCaptains(captain, vc) {
+      document.getElementById("captainName").textContent = captain.player;
+      document.getElementById("vcName").textContent = vc.player;
+      document.getElementById("captainSection").style.display = "block";
+    }
+
+    function renderBenchSwaps(swaps) {
+      const container = document.getElementById("benchSwaps");
+      if (!swaps || swaps.length === 0) return;
+      const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
+      swaps.forEach(swap => {
+        const div = document.createElement("div");
+        div.style.cssText = "background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.5rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;";
+        div.innerHTML = `
+          <div>
+            <span style="color:#ff6b6b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em;">Bench</span>
+            <div style="font-weight:600; margin-top:0.2rem;">${swap.player_in}</div>
+          </div>
+          <div style="color:var(--muted)">→ Start over →</div>
+          <div>
+            <span style="color:var(--green); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em;">Starting</span>
+            <div style="font-weight:600; margin-top:0.2rem;">${swap.player_out}</div>
+          </div>
+          <div style="font-family:'Bebas Neue',sans-serif; font-size:1.1rem; color:var(--green);">${POSITION_NAMES[swap.position]}</div>
+        `;
+        container.appendChild(div);
+      });
+      document.getElementById("benchSwapSection").style.display = "block";
+    }
+
+    
+
+    function renderRecommendations(recs) {
+      const container = document.getElementById("recommendations");
+      recs.forEach((rec, i) => {
+        const costDiff = Math.round((rec.player_in_cost - rec.player_out_cost) * 10) / 10;
+        const costStr = costDiff > 0 ? `+£${costDiff}m` : costDiff < 0 ? `-£${Math.abs(costDiff)}m` : "Same price";
+        const costClass = costDiff < 0 ? "cheaper" : costDiff > 0 ? "pricier" : "";
+        const epDiff = Math.round((parseFloat(rec.player_in_ep) - parseFloat(rec.player_out_ep)) * 10) / 10;
+
+        const card = document.createElement("div");
+        card.className = "rec-card";
+        card.style.animationDelay = `${i * 0.07}s`;
+        card.innerHTML = `
+          <div class="player-out">
+            <div class="label">Transfer Out</div>
+            <div class="player-name">${rec.player_out}</div>
+            <div class="player-cost">£${rec.player_out_cost}m</div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="player-in">
+            <div class="label">Transfer In</div>
+            <div class="player-name">${rec.player_in}</div>
+            <div class="player-cost">£${rec.player_in_cost}m</div>
+          </div>
+        <div class="rec-stats">
+            <div class="position-badge">${POSITION_NAMES[rec.position]}</div>
+            <div class="improvement">+${epDiff} pts</div>
+            <div class="cost-change ${costClass}">${costStr}</div>
+            <div style="font-size:0.75rem; margin-top:0.2rem; padding:0.2rem 0.6rem; border-radius:4px; font-weight:600;
+              ${rec.verdict === 'Strong' ? 'background:rgba(0,255,135,0.15); color:#00ff87;' : 
+                rec.verdict === 'Moderate' ? 'background:rgba(255,159,67,0.15); color:#ff9f43;' : 
+                'background:rgba(255,107,107,0.15); color:#ff6b6b;'}">
+              ${rec.verdict}
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function setLoading(on) {
+      document.getElementById("loadingStatus").classList.toggle("visible", on);
+      document.getElementById("analyseBtn").disabled = on;
+    }
+
+    async function loadFixtures(teamId) {
+      try {
+        const res = await fetch(`/fixtures?team_id=${teamId}`);
+        const data = await res.json();
+        if (data.error) return;
+
+        const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
+        const container = document.getElementById("fixtureTicker");
+        container.innerHTML = "";
+
+        // Sort: starters first, then by position
+        data.players.sort((a, b) => {
+          if (a.is_starter !== b.is_starter) return b.is_starter - a.is_starter;
+          return a.position - b.position;
+        });
+
+        data.players.forEach(player => {
+          const row = document.createElement("div");
+          row.className = `fixture-row${player.is_starter ? "" : " bench-player"}`;
+
+          const chips = player.fixtures.map(f => {
+            const label = f.home ? f.opponent.substring(0, 3).toUpperCase() : f.opponent.substring(0, 3).toLowerCase();
+            return `<div class="fixture-chip diff-${f.difficulty}" title="${f.opponent} (${f.home ? 'H' : 'A'})">${label}</div>`;
+          }).join("");
+
+          row.innerHTML = `
+            <div class="pos-badge">${POSITION_NAMES[player.position]}</div>
+            <div style="font-weight:600; font-size:0.9rem;">${player.player}</div>
+            <div style="font-size:0.8rem; color:var(--muted);">${player.team}</div>
+            ${chips}
+          `;
+          container.appendChild(row);
+        });
+
+        document.getElementById("fixtureSection").style.display = "block";
+      } catch (err) {
+        console.error("Fixture load error:", err);
+      }
+    }
+
+    async function loadPriceChanges() {
+      document.getElementById("priceBtn").disabled = true;
+      document.getElementById("priceBtn").textContent = "Loading...";
+      try {
+        const res = await fetch("/price-changes");
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        renderPricePlayers("risingPlayers", data.risers, true);
+        renderPricePlayers("fallingPlayers", data.fallers, false);
+        document.getElementById("priceSection").style.display = "block";
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        document.getElementById("priceBtn").disabled = false;
+        document.getElementById("priceBtn").textContent = "Check Price Changes";
+      }
+    }
+
+    function renderPricePlayers(containerId, players, rising) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = "";
+      players.forEach(p => {
+        const div = document.createElement("div");
+        div.style.cssText = "background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.2rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;";
+        const ratioStr = rising ? `+${p.ownership_ratio}%` : `${p.ownership_ratio}%`;
+        const ratioColor = rising ? "#00ff87" : "#ff6b6b";
+        div.innerHTML = `
+          <div>
+            <div style="font-weight:600;">${p.player}</div>
+            <div style="font-size:0.8rem; color:var(--muted);">${p.team} · £${p.cost}m · ${p.selected_by}% owned</div>
+          </div>
+          <div style="font-family:'Bebas Neue',sans-serif; font-size:1.2rem; color:${ratioColor};">${ratioStr}</div>
+        `;
+        container.appendChild(div);
+      });
+
+      if (players.length === 0) {
+        container.innerHTML = `<div style="color:var(--muted); font-size:0.9rem; padding:1rem;">No players currently near a price change</div>`;
+      }
+    }
+
+    function clearResults() {
+      document.getElementById("recommendations").innerHTML = "";
+      document.getElementById("benchSwaps").innerHTML = "";
+      document.getElementById("errorMsg").classList.remove("visible");
+      document.getElementById("squadInfo").classList.remove("visible");
+      document.getElementById("resultsHeader").classList.remove("visible");
+      document.getElementById("captainSection").style.display = "none";
+      document.getElementById("benchSwapSection").style.display = "none";
+      document.getElementById("rollSection").style.display = "none";
+      document.getElementById("fixtureSection").style.display = "none";
+      document.getElementById("fixtureTicker").innerHTML = "";
+      document.getElementById("differentialSection").style.display = "none";
+      document.getElementById("differentialPlayers").innerHTML = "";
+    }
+
+    function renderDifferentials(players) {
+      const container = document.getElementById("differentialPlayers");
+      const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
+      players.forEach(p => {
+        const div = document.createElement("div");
+        div.style.cssText = "background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.5rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;";
+        div.innerHTML = `
+          <div>
+            <div style="font-weight:600;">${p.player}</div>
+            <div style="font-size:0.8rem; color:var(--muted);">${p.team} · £${p.cost}m · ${POSITION_NAMES[p.position]}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-family:'Bebas Neue',sans-serif; font-size:1.2rem; color:var(--green);">${p.ep_next} pts</div>
+            <div style="font-size:0.75rem; color:var(--muted);">${p.selected_by}% owned</div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+      document.getElementById("differentialSection").style.display = "block";
+    }
+
+    function showError(msg) {
+      const el = document.getElementById("errorMsg");
+      el.textContent = msg;
+      el.classList.add("visible");
+    }
+
+    document.getElementById("teamId").addEventListener("keydown", e => {
+      if (e.key === "Enter") analyse();
+    });
+  </script>
+</body>
+</html>

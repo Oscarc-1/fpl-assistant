@@ -1,0 +1,14 @@
+# macOS folder metadata
+.DS_Store
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Secrets — never commit these
+.env
+
+# JavaScript packages (reinstallable)
+node_modules/
