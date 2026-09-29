@@ -4,671 +4,834 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>FPL Assistant</title>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --green: #00ff87;
-      --green-dim: #00c96a;
-      --bg: #0a0e0a;
-      --card: #111711;
-      --border: #1e2b1e;
-      --text: #e8f5e8;
-      --muted: #6b8f6b;
+      --bg: #fafaf8;
+      --surface: #ffffff;
+      --text: #1c1c1a;
+      --muted: #6f6f6a;
+      --faint: #a3a39d;
+      --line: #e8e8e4;
+      --accent: #1f7a4d;
+      --accent-soft: #e6f2eb;
+      --up: #1f7a4d;
+      --down: #b3403a;
+      --warn: #a86a12;
+      --warn-soft: #f6eedf;
+      --down-soft: #fbeeed;
     }
 
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: 'DM Sans', sans-serif;
-      min-height: 100vh;
-      padding: 2rem;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* background grid */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(var(--border) 1px, transparent 1px),
-        linear-gradient(90deg, var(--border) 1px, transparent 1px);
-      background-size: 40px 40px;
-      opacity: 0.4;
-      pointer-events: none;
-      z-index: 0;
+    /* top bar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: 56px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
     }
 
-    .container {
-      max-width: 860px;
+    /* Top bar content lines up with the centred page below */
+    .topbar-inner {
+      max-width: 1040px;
+      height: 100%;
       margin: 0 auto;
-      position: relative;
-      z-index: 1;
-    }
-
-    header {
-      margin-bottom: 3rem;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 2rem;
-    }
-
-    .logo {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 4rem;
-      letter-spacing: 0.05em;
-      line-height: 1;
-      color: var(--green);
-    }
-
-    .logo span { color: var(--text); }
-
-    .tagline {
-      color: var(--muted);
-      font-size: 0.95rem;
-      margin-top: 0.4rem;
-    }
-
-    .input-section {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 2rem;
-      margin-bottom: 2rem;
-    }
-
-    .input-section h2 {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.4rem;
-      letter-spacing: 0.05em;
-      margin-bottom: 1.2rem;
-      color: var(--green);
-    }
-
-    .input-row {
+      padding: 0 1.5rem;
       display: flex;
-      gap: 1rem;
+      align-items: center;
+      gap: 0.75rem;
     }
+
+    .site-title { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.02em; }
+    .brand { color: var(--accent); }
+
+    .menu-btn {
+      display: none;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      padding: 0.3rem;
+      margin-left: -0.3rem;
+      line-height: 0;
+    }
+    .menu-btn:hover { opacity: 0.6; }
+
+    /* sidebar + main */
+    .layout {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+      gap: 3.5rem;
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 56px;
+      height: calc(100vh - 56px);
+      overflow-y: auto;
+      padding: 3rem 0 2rem;
+      background: var(--bg);
+    }
+
+    .team-card { display: none; padding-bottom: 1.25rem; margin-bottom: 0.25rem; border-bottom: 1px solid var(--line); }
+    .team-card.visible { display: block; }
+    .team-card .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .team-card .meta { font-size: 0.85rem; color: var(--muted); margin-top: 0.1rem; }
+    .team-card .meta b { color: var(--accent); font-weight: 600; }
+
+    .nav-label {
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--faint);
+      margin: 1.5rem 0 0.4rem;
+    }
+
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.92rem;
+      transition: color 0.15s;
+    }
+    .nav a::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: transparent;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .nav a:hover { color: var(--text); }
+    .nav a.active { color: var(--text); font-weight: 500; }
+    .nav a.active::before { background: var(--accent); }
+    .nav a.disabled { color: var(--faint); pointer-events: none; }
+
+    .scrim { display: none; }
+
+    main { padding: 3rem 0 6rem; min-width: 0; }
+    .tagline { color: var(--muted); margin-bottom: 2.5rem; font-size: 1.05rem; }
+    .container { max-width: 760px; }
+
+    section { margin-bottom: 3rem; scroll-margin-top: 80px; }
+
+    h2 {
+      font-size: 0.8rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    h2::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    h3 { font-size: 0.9rem; font-weight: 600; margin: 1.5rem 0 0.4rem; }
+
+    .input-row { display: flex; gap: 0.5rem; }
 
     input[type="text"] {
       flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
+      min-width: 0;
+      background: var(--surface);
+      border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 0.85rem 1.2rem;
+      padding: 0.7rem 0.9rem;
       color: var(--text);
-      font-family: 'DM Sans', sans-serif;
-      font-size: 1rem;
+      font: inherit;
       outline: none;
-      transition: border-color 0.2s;
+      transition: border-color 0.15s;
     }
 
-    input[type="text"]:focus { border-color: var(--green); }
-    input[type="text"]::placeholder { color: var(--muted); }
+    input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    input[type="text"]::placeholder { color: var(--faint); }
 
     button {
-      background: var(--green);
-      color: #000;
-      border: none;
+      background: var(--accent);
+      color: #fff;
+      border: 1px solid var(--accent);
       border-radius: 8px;
-      padding: 0.85rem 2rem;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.1rem;
-      letter-spacing: 0.05em;
+      padding: 0.7rem 1.2rem;
+      font: inherit;
+      font-weight: 500;
       cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
+      transition: opacity 0.15s;
     }
 
-    button:hover { background: var(--green-dim); }
-    button:active { transform: scale(0.98); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .hint {
-      font-size: 0.8rem;
-      color: var(--muted);
-      margin-top: 0.75rem;
+    button.secondary { background: transparent; color: var(--text); border-color: var(--line); }
+    button.secondary:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+
+    .hint { font-size: 0.85rem; color: var(--muted); margin-top: 0.6rem; }
+    .hint a { color: var(--accent); }
+
+    /* summary stats */
+    .stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem 2.5rem;
+      padding: 1.1rem 1.4rem;
+      background: var(--accent-soft);
+      border-radius: 10px;
+      margin-bottom: 3rem;
     }
 
-    .hint a { color: var(--green); text-decoration: none; }
+    .stat-label { font-size: 0.8rem; color: var(--muted); }
+    .stat-value { font-size: 1.15rem; font-weight: 600; margin-top: 0.1rem; color: var(--accent); }
 
-    /* squad info bar */
-    .squad-info {
-      display: none;
+    /* rows */
+    .list { border-top: 1px solid var(--line); }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       gap: 1rem;
-      margin-bottom: 2rem;
+      padding: 0.8rem 0;
+      border-bottom: 1px solid var(--line);
     }
 
-    .squad-info.visible { display: flex; }
+    .row-main { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+    .row-title { font-weight: 500; }
+    .row-sub { font-size: 0.85rem; color: var(--muted); margin-top: 0.1rem; }
+    .row-right { text-align: right; flex-shrink: 0; }
+    .row-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-    .info-pill {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.75rem 1.2rem;
+    .pos { width: 2.2rem; flex-shrink: 0; font-size: 0.75rem; color: var(--faint); font-weight: 500; letter-spacing: 0.04em; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.3rem;
+      height: 1.3rem;
+      border-radius: 50%;
+      font-size: 0.65rem;
+      font-weight: 600;
+      margin-left: 0.4rem;
+      background: var(--accent);
+      color: #fff;
+      vertical-align: 1px;
+    }
+
+    .badge.vice { background: var(--accent-soft); color: var(--accent); }
+
+    .pill {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 0.05rem 0.5rem;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin-left: 0.4rem;
+    }
+
+    .up { color: var(--up); }
+    .down { color: var(--down); }
+    .empty { color: var(--muted); font-size: 0.9rem; padding: 0.8rem 0; }
+
+    /* expandable squad rows */
+    .squad-row { cursor: pointer; }
+    .squad-row .chev { color: var(--faint); font-size: 0.8rem; margin-left: 0.5rem; transition: transform 0.15s; }
+    .squad-row.open .chev { transform: rotate(90deg); }
+
+    .breakdown {
+      display: none;
+      padding: 0.2rem 0 0.9rem 2.95rem;
+      border-bottom: 1px solid var(--line);
       font-size: 0.85rem;
       color: var(--muted);
     }
 
-    .info-pill strong { color: var(--green); font-size: 1.1rem; display: block; }
+    .breakdown.open { display: block; }
 
-    /* results */
-    .results-header {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.6rem;
-      letter-spacing: 0.05em;
-      margin-bottom: 1.2rem;
-      display: none;
+    .breakdown-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.2rem 1.5rem;
     }
 
-    .results-header.visible { display: block; }
+    .breakdown-grid span:last-child { float: right; font-variant-numeric: tabular-nums; color: var(--text); }
 
-    .recommendations { display: flex; flex-direction: column; gap: 1rem; }
+    /* alerts */
+    .alert {
+      display: flex;
+      gap: 0.75rem;
+      align-items: baseline;
+      padding: 0.7rem 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 0.9rem;
+    }
 
-    .rec-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
+    .alert-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; transform: translateY(-1px); }
+    .alert-dot.injury, .alert-dot.suspension, .alert-dot.blank, .alert-dot.price_down { background: var(--down); }
+    .alert-dot.price_up, .alert-dot.double { background: var(--accent); }
+
+    /* transfer plan */
+    .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
+
+    .option {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+      background: var(--surface);
+    }
+
+    .option.best { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .option-label { font-size: 0.8rem; color: var(--muted); display: flex; justify-content: space-between; }
+    .option-net { font-size: 1.3rem; font-weight: 600; margin: 0.15rem 0 0.4rem; }
+    .option-move { font-size: 0.85rem; }
+
+    .move {
       display: grid;
       grid-template-columns: 1fr auto 1fr auto;
       align-items: center;
-      gap: 1rem;
-      opacity: 0;
-      transform: translateY(12px);
-      animation: fadeUp 0.4s forwards;
+      gap: 0.75rem;
+      padding: 0.8rem 0;
+      border-bottom: 1px solid var(--line);
     }
 
-    @keyframes fadeUp {
-      to { opacity: 1; transform: translateY(0); }
-    }
+    .move .label { font-size: 0.75rem; color: var(--faint); }
+    .move .arrow { color: var(--accent); }
 
-    .player-out .label, .player-in .label {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
+    /* tabs */
+    .tabs { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+
+    .tab {
+      background: transparent;
       color: var(--muted);
-      margin-bottom: 0.2rem;
-    }
-
-    .player-out .label { color: #ff6b6b; }
-    .player-in .label { color: var(--green); }
-
-    .player-name {
-      font-size: 1.05rem;
-      font-weight: 600;
-    }
-
-    .player-cost {
+      border: 1px solid var(--line);
+      padding: 0.3rem 0.8rem;
       font-size: 0.85rem;
-      color: var(--muted);
-      margin-top: 0.15rem;
+      border-radius: 999px;
     }
 
-    .arrow {
-      font-size: 1.4rem;
-      color: var(--muted);
-    }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-    .rec-stats {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 0.3rem;
-    }
+    /* planner grid */
+    .grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-    .position-badge {
-      font-size: 0.7rem;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 0.08em;
-      background: var(--border);
-      color: var(--muted);
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-    }
+    table.planner { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.85rem; }
+    table.planner th { font-weight: 500; color: var(--faint); font-size: 0.75rem; text-align: center; padding: 0.3rem; }
+    table.planner th:first-child { text-align: left; }
+    table.planner td { padding: 0.25rem; border-bottom: 1px solid var(--line); text-align: center; }
+    table.planner td:first-child { text-align: left; white-space: nowrap; padding-right: 0.75rem; }
+    table.planner tr.bench td { opacity: 0.5; }
 
-    .improvement {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.5rem;
-      color: var(--green);
-      letter-spacing: 0.05em;
-    }
+    .cell { border-radius: 5px; padding: 0.25rem 0.2rem; line-height: 1.2; }
+    .cell .opp { font-size: 0.65rem; color: var(--muted); display: block; }
+    .cell b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-    .cost-change {
-      font-size: 0.8rem;
-      color: var(--muted);
-    }
+    /* chips */
+    .chip-row { padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
+    .chip-name { font-weight: 500; }
 
-    .cost-change.cheaper { color: var(--green); }
-    .cost-change.pricier { color: #ff9f43; }
+    /* price changes */
+    .price-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem; }
 
     /* loading & error */
-    .status {
-      text-align: center;
-      padding: 3rem;
-      color: var(--muted);
-      display: none;
-    }
-
-    .status.visible { display: block; }
+    .status { display: none; color: var(--muted); padding: 1rem 0 2rem; }
+    .status.visible { display: flex; align-items: center; gap: 0.75rem; }
 
     .spinner {
-      width: 36px; height: 36px;
-      border: 3px solid var(--border);
-      border-top-color: var(--green);
+      width: 16px; height: 16px;
+      border: 2px solid var(--line);
+      border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
-      margin: 0 auto 1rem;
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
     .error-msg {
-      color: #ff6b6b;
-      background: rgba(255,107,107,0.08);
-      border: 1px solid rgba(255,107,107,0.2);
-      border-radius: 8px;
-      padding: 1rem 1.2rem;
-      margin-bottom: 1.5rem;
       display: none;
+      color: var(--down);
+      background: var(--down-soft);
+      border-radius: 8px;
+      padding: 0.9rem 1.1rem;
+      margin-bottom: 2rem;
+      font-size: 0.9rem;
     }
 
     .error-msg.visible { display: block; }
 
-    /* fixture ticker */
-    .fixture-section {
-      margin-bottom: 2rem;
+    details.about { font-size: 0.85rem; color: var(--muted); }
+    details.about summary { cursor: pointer; color: var(--text); font-weight: 500; }
+    details.about p { margin-top: 0.6rem; }
+
+    /* custom cursor: slim dark arrow, green over anything clickable */
+    body { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4 2v17l4.5-4.2 3 6.7 2.7-1.2-3-6.6 6.3-.2z' fill='%231c1c1a' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 4 2, auto; }
+    a, button, summary, .tab, .squad-row, .menu-btn, label { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M4 2v17l4.5-4.2 3 6.7 2.7-1.2-3-6.6 6.3-.2z' fill='%231f7a4d' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") 4 2, pointer; }
+    input[type="text"] { cursor: text; }
+    button:disabled { cursor: not-allowed; }
+
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; gap: 0; padding: 0; }
+      .menu-btn { display: block; }
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 56px;
+        z-index: 25;
+        width: 240px;
+        padding: 1.5rem 1.5rem 2rem;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+        border-right: 1px solid var(--line);
+      }
+      .sidebar.open { transform: none; }
+      .scrim.open { display: block; position: fixed; inset: 56px 0 0 0; z-index: 20; background: rgba(28, 28, 26, 0.15); }
+      main { padding: 2.5rem 1.25rem 5rem; }
+      .container { margin: 0 auto; }
     }
 
-    .fixture-table {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
+    @media (max-width: 600px) {
+      .topbar-inner { padding: 0 1rem; }
+      main { padding: 2rem 1rem 5rem; }
+      .price-grid { grid-template-columns: 1fr; }
+      .move { grid-template-columns: 1fr auto 1fr; }
+      .move .row-right { grid-column: 1 / -1; text-align: left; }
+      .breakdown { padding-left: 0; }
     }
-
-    .fixture-row {
-      display: grid;
-      grid-template-columns: 2rem 1fr 1fr repeat(5, 2.5rem);
-      align-items: center;
-      padding: 0.7rem 1.2rem;
-      border-bottom: 1px solid var(--border);
-      gap: 0.5rem;
-    }
-
-    .fixture-row:last-child { border-bottom: none; }
-
-    .fixture-row.header {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--muted);
-      padding: 0.5rem 1.2rem;
-    }
-
-    .fixture-row.bench-player {
-      opacity: 0.45;
-    }
-
-    .pos-badge {
-      font-size: 0.65rem;
-      font-family: 'Bebas Neue', sans-serif;
-      letter-spacing: 0.08em;
-      background: var(--border);
-      color: var(--muted);
-      padding: 0.15rem 0.3rem;
-      border-radius: 3px;
-      text-align: center;
-    }
-
-    .fixture-chip {
-      border-radius: 4px;
-      padding: 0.25rem 0.2rem;
-      font-size: 0.65rem;
-      font-weight: 600;
-      text-align: center;
-      line-height: 1.3;
-      cursor: default;
-    }
-
-    .diff-1 { background: #00a86b; color: #000; }
-    .diff-2 { background: #00ff87; color: #000; }
-    .diff-3 { background: #ffd700; color: #000; }
-    .diff-4 { background: #ff6b6b; color: #000; }
-    .diff-5 { background: #cc0000; color: #fff; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <div class="logo">FPL <span>Assistant</span></div>
-      <div class="tagline">AI-powered transfer recommendations for your squad</div>
-    </header>
+  <header class="topbar">
+    <div class="topbar-inner">
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu" onclick="toggleMenu()">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div class="site-title"><span class="brand">FPL</span> Assistant</div>
+    </div>
+  </header>
 
-    <div class="input-section">
-      <h2>Enter Your Team</h2>
-      <div class="input-row">
-        <input type="text" id="teamId" placeholder="Your FPL Team ID (e.g. 230993)" />
-        <button id="analyseBtn" onclick="analyse()">Analyse</button>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="team-card" id="teamCard">
+        <div class="name" id="teamCardName"></div>
+        <div class="meta" id="teamCardMeta"></div>
       </div>
-      <p class="hint">
-        Find your team ID by visiting <a href="https://fantasy.premierleague.com" target="_blank">fantasy.premierleague.com</a>
-        → Points → the number in the URL after /entry/
-      </p>
-    </div>
+      <nav class="nav" id="nav">
+        <div class="nav-label">Your team</div>
+        <a href="#overview">Overview</a>
+        <a href="#lineup" class="disabled" data-team>Best lineup</a>
+        <a href="#transfers" class="disabled" data-team>Transfers</a>
+        <a href="#planner" class="disabled" data-team>Next 6 gameweeks</a>
+        <a href="#chips" class="disabled" data-team>Chips</a>
+        <div class="nav-label">Research</div>
+        <a href="#top-picks" class="disabled" data-team>Top picks</a>
+        <a href="#prices">Price changes</a>
+        <div class="nav-label">Help</div>
+        <a href="#about">How it works</a>
+      </nav>
+    </aside>
+    <div class="scrim" id="scrim" onclick="toggleMenu(false)"></div>
 
-    <div class="input-section" style="margin-bottom:2rem;">
-      <h2>Price Change Alerts</h2>
-      <button onclick="loadPriceChanges()" id="priceBtn">Check Price Changes</button>
-      <p class="hint">See which players are about to rise or fall in price across the entire game</p>
-    </div>
+    <main>
+      <div class="container">
+        <p class="tagline">Get the most points out of your squad</p>
 
-    <div id="priceSection" style="display:none; margin-bottom:2rem;">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-        <div>
-          <div class="results-header" style="display:block; margin-bottom:1rem; color:#00ff87;">⬆ Rising Soon</div>
-          <div id="risingPlayers"></div>
+        <section id="overview">
+          <h2>Your team</h2>
+          <div class="input-row">
+            <input type="text" id="teamId" inputmode="numeric" placeholder="FPL team ID, e.g. 230993" />
+            <button id="analyseBtn" onclick="analyse()">Analyse</button>
+          </div>
+          <p class="hint">
+            Find it on <a href="https://fantasy.premierleague.com" target="_blank">fantasy.premierleague.com</a>
+            → Points → the number in the URL after /entry/
+          </p>
+        </section>
+
+        <div class="error-msg" id="errorMsg"></div>
+
+        <div class="status" id="loadingStatus">
+          <div class="spinner"></div>
+          Crunching the numbers… the first run can take a few seconds.
         </div>
-        <div>
-          <div class="results-header" style="display:block; margin-bottom:1rem; color:#ff6b6b;">⬇ Falling Soon</div>
-          <div id="fallingPlayers"></div>
+
+        <div id="results" style="display:none;">
+          <section id="summary" data-nav="overview">
+            <div class="stats" id="stats"></div>
+            <div id="alertsSection">
+              <h2>Alerts</h2>
+              <div class="list" id="alerts"></div>
+            </div>
+          </section>
+
+          <section id="lineup">
+            <h2>Best lineup</h2>
+            <p class="hint" style="margin:-0.5rem 0 1rem;">Predicted points this gameweek. Tap a player to see where their points come from.</p>
+            <div class="list" id="lineupList"></div>
+            <h3>Bench</h3>
+            <div class="list" id="bench"></div>
+          </section>
+
+          <section id="transfers">
+            <h2>Transfer plan</h2>
+            <p class="hint" style="margin:-0.5rem 0 1rem;" id="transferHint"></p>
+            <div class="options" id="transferOptions"></div>
+            <div id="transferMoves"></div>
+            <h3>Other good single transfers</h3>
+            <div class="list" id="transferAlternatives"></div>
+          </section>
+
+          <section id="planner">
+            <h2>Next 6 gameweeks</h2>
+            <p class="hint" style="margin:-0.5rem 0 1rem;">Predicted points per gameweek for your squad. Darker green means more points.</p>
+            <div class="grid-wrap"><table class="planner" id="plannerTable"></table></div>
+          </section>
+
+          <section id="chips">
+            <h2>Chips</h2>
+            <div class="list" id="chipsList"></div>
+          </section>
+
+          <section id="top-picks">
+            <h2>Top picks this gameweek</h2>
+            <div class="tabs" id="topTabs"></div>
+            <div class="list" id="topPlayers"></div>
+          </section>
         </div>
+
+        <section id="prices">
+          <h2>Price changes</h2>
+          <button class="secondary" onclick="loadPriceChanges()" id="priceBtn">Check price changes</button>
+          <p class="hint" id="priceHint">Players about to rise or fall, from FPL's official price projections</p>
+          <div id="priceSection" style="display:none;">
+            <div class="price-grid">
+              <div>
+                <h3 class="up">Rising</h3>
+                <div class="list" id="risingPlayers"></div>
+              </div>
+              <div>
+                <h3 class="down">Falling</h3>
+                <div class="list" id="fallingPlayers"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="about">
+          <h2>How it works</h2>
+          <details class="about" open>
+            <summary>How predictions work</summary>
+            <p>Each prediction is an average over everything that could happen, weighted by how likely it is, not a best case.
+              It combines the chance a player is fit and starts (from his club's depth chart and FPL's injury news) and plays
+              60 minutes; his expected goals and assists, adjusted for the opponent and for his finishing record; penalties,
+              if he's his club's taker; the chance of a clean sheet; defensive contributions, saves, bonus and cards.</p>
+            <p>This season's numbers are blended steadily with previous seasons: the more a player plays this season, the more
+              this season counts. Team strengths come from this season's expected goals. Tested on every gameweek of 2024/25
+              and 2025/26, these predictions pick better players than FPL's own expected points, which are just recent form.</p>
+          </details>
+        </section>
       </div>
-    </div>
-
-    <div class="error-msg" id="errorMsg"></div>
-
-    <div class="squad-info" id="squadInfo">
-      <div class="info-pill"><strong id="squadValue">—</strong>Squad Value</div>
-      <div class="info-pill"><strong id="bankValue">—</strong>Bank</div>
-      <div class="info-pill"><strong id="gwValue">—</strong>Gameweek</div>
-    </div>
-
-    <div id="captainSection" style="display:none; margin-bottom:2rem;">
-      <div class="results-header" style="display:block; margin-bottom:1rem;">This Week's Picks</div>
-      <div style="display:flex; gap:1rem; flex-wrap:wrap;">
-        <div class="info-pill" id="captainPill"><strong id="captainName">—</strong>Captain</div>
-        <div class="info-pill" id="vcPill"><strong id="vcName">—</strong>Vice Captain</div>
-      </div>
-    </div>
-
-    <div id="benchSwapSection" style="display:none; margin-bottom:2rem;">
-      <div class="results-header" style="display:block; margin-bottom:1rem;">Suggested Lineup Changes</div>
-      <div id="benchSwaps"></div>
-    </div>
-
-    <div id="rollSection" style="display:none; margin-bottom:2rem;">
-      <div style="background:#1a1f1a; border:1px solid #2a3a2a; border-radius:12px; padding:1.2rem 1.5rem; color:#6b8f6b;">
-        💡 No strong transfers available this week — consider rolling your transfer
-      </div>
-    </div>
-
-    <div class="fixture-section" id="fixtureSection" style="display:none;">
-      <div class="results-header" style="display:block; margin-bottom:1rem;">Squad Fixture Ticker</div>
-      <div class="fixture-table">
-        <div class="fixture-row header">
-          <div></div>
-          <div>Player</div>
-          <div>Team</div>
-          <div style="grid-column: span 5; text-align:center;">Next 5 Fixtures</div>
-        </div>
-        <div id="fixtureTicker"></div>
-      </div>
-    </div>
-
-    <div id="differentialSection" style="display:none; margin-bottom:2rem;">
-      <div class="results-header" style="display:block; margin-bottom:1rem;">Differential Picks</div>
-      <p style="color:var(--muted); font-size:0.85rem; margin-bottom:1rem;">Low ownership players your algorithm rates highly this week — potential mini league winners</p>
-      <div id="differentialPlayers"></div>
-    </div>
-
-    <div class="results-header" id="resultsHeader">Top Transfer Recommendations</div>
-
-    <div class="status" id="loadingStatus">
-      <div class="spinner"></div>
-      Analysing your squad...
-    </div>
-
-    <div class="recommendations" id="recommendations"></div>
+    </main>
   </div>
 
   <script>
-    const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
+    const BREAKDOWN_LABELS = {
+      appearance: "Minutes", goals: "Goals", assists: "Assists", clean_sheet: "Clean sheet",
+      goals_conceded: "Goals conceded", defensive: "Defensive contribution", saves: "Saves",
+      bonus: "Bonus", cards: "Cards", penalties: "Penalties"
+    };
+    const $ = id => document.getElementById(id);
+    let topPlayers = {};
 
     async function analyse() {
-      const teamId = document.getElementById("teamId").value.trim();
+      const teamId = $("teamId").value.trim();
       if (!teamId) return;
 
-      setLoading(true);
-      clearResults();
+      $("analyseBtn").disabled = true;
+      $("loadingStatus").classList.add("visible");
+      $("errorMsg").classList.remove("visible");
+      $("results").style.display = "none";
 
       try {
-        const res = await fetch(`/recommend?team_id=${teamId}`);
+        const res = await fetch(`/analysis?team_id=${encodeURIComponent(teamId)}`);
         const data = await res.json();
-
         if (data.error) throw new Error(data.error);
-
-        document.getElementById("squadValue").textContent = `£${data.squad_value}m`;
-        document.getElementById("bankValue").textContent = `£${data.bank}m`;
-        document.getElementById("gwValue").textContent = `GW${data.gameweek}`;
-        document.getElementById("squadInfo").classList.add("visible");
-        document.getElementById("resultsHeader").classList.add("visible");
-
-        if (data.captain && data.vice_captain) renderCaptains(data.captain, data.vice_captain);
-        if (data.bench_swaps && data.bench_swaps.length > 0) renderBenchSwaps(data.bench_swaps);
-        if (data.differentials && data.differentials.length > 0) renderDifferentials(data.differentials);
-        if (data.roll_transfer) document.getElementById("rollSection").style.display = "block";
-
-        renderRecommendations(data.recommendations);
-        loadFixtures(teamId);
+        render(data);
+        $("results").style.display = "block";
+        document.querySelectorAll(".nav a[data-team]").forEach(a => a.classList.remove("disabled"));
+        $("teamCardName").textContent = data.team_name || `Team ${teamId}`;
+        $("teamCardMeta").innerHTML = `GW${data.gameweek} · <b>${data.lineup_xp}</b> predicted pts`;
+        $("teamCard").classList.add("visible");
+        try { localStorage.setItem("fplTeamId", teamId); } catch (e) {}
+        document.getElementById("summary").scrollIntoView({ behavior: "smooth" });
       } catch (err) {
         showError(err.message || "Something went wrong. Check your team ID and try again.");
       } finally {
-        setLoading(false);
+        $("analyseBtn").disabled = false;
+        $("loadingStatus").classList.remove("visible");
       }
     }
-    function renderCaptains(captain, vc) {
-      document.getElementById("captainName").textContent = captain.player;
-      document.getElementById("vcName").textContent = vc.player;
-      document.getElementById("captainSection").style.display = "block";
+
+    function render(data) {
+      renderStats(data);
+      renderAlerts(data.alerts);
+      renderLineup(data.squad);
+      renderTransfers(data.transfers);
+      topPlayers = data.top_players;
+      renderTopTabs();
+      renderPlanner(data.squad, data.gameweeks);
+      renderChips(data.chips);
     }
 
-    function renderBenchSwaps(swaps) {
-      const container = document.getElementById("benchSwaps");
-      if (!swaps || swaps.length === 0) return;
-      const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
-      swaps.forEach(swap => {
-        const div = document.createElement("div");
-        div.style.cssText = "background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.5rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;";
-        div.innerHTML = `
-          <div>
-            <span style="color:#ff6b6b; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em;">Bench</span>
-            <div style="font-weight:600; margin-top:0.2rem;">${swap.player_in}</div>
-          </div>
-          <div style="color:var(--muted)">→ Start over →</div>
-          <div>
-            <span style="color:var(--green); font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em;">Starting</span>
-            <div style="font-weight:600; margin-top:0.2rem;">${swap.player_out}</div>
-          </div>
-          <div style="font-family:'Bebas Neue',sans-serif; font-size:1.1rem; color:var(--green);">${POSITION_NAMES[swap.position]}</div>
-        `;
-        container.appendChild(div);
-      });
-      document.getElementById("benchSwapSection").style.display = "block";
+    function renderStats(d) {
+      const stat = (label, value) => `<div><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+      $("stats").innerHTML =
+        (d.team_name ? stat("Team", d.team_name) : "") +
+        stat("Gameweek", `GW${d.gameweek}`) +
+        stat("Predicted points", d.lineup_xp) +
+        stat("Free transfers", d.free_transfers) +
+        stat("In the bank", `£${d.bank}m`);
     }
 
-    
+    function renderAlerts(alerts) {
+      $("alertsSection").style.display = alerts.length ? "block" : "none";
+      $("alerts").innerHTML = alerts.map(a => `
+        <div class="alert">
+          <span class="alert-dot ${a.type}"></span>
+          <div><b style="font-weight:500">${a.player.name}</b>: ${a.text}${a.detail ? ` <span class="row-sub">(${a.detail})</span>` : ""}</div>
+        </div>`).join("");
+    }
 
-    function renderRecommendations(recs) {
-      const container = document.getElementById("recommendations");
-      recs.forEach((rec, i) => {
-        const costDiff = Math.round((rec.player_in_cost - rec.player_out_cost) * 10) / 10;
-        const costStr = costDiff > 0 ? `+£${costDiff}m` : costDiff < 0 ? `-£${Math.abs(costDiff)}m` : "Same price";
-        const costClass = costDiff < 0 ? "cheaper" : costDiff > 0 ? "pricier" : "";
-        const epDiff = Math.round((parseFloat(rec.player_in_ep) - parseFloat(rec.player_out_ep)) * 10) / 10;
-
-        const card = document.createElement("div");
-        card.className = "rec-card";
-        card.style.animationDelay = `${i * 0.07}s`;
-        card.innerHTML = `
-          <div class="player-out">
-            <div class="label">Transfer Out</div>
-            <div class="player-name">${rec.player_out}</div>
-            <div class="player-cost">£${rec.player_out_cost}m</div>
-          </div>
-          <div class="arrow">→</div>
-          <div class="player-in">
-            <div class="label">Transfer In</div>
-            <div class="player-name">${rec.player_in}</div>
-            <div class="player-cost">£${rec.player_in_cost}m</div>
-          </div>
-        <div class="rec-stats">
-            <div class="position-badge">${POSITION_NAMES[rec.position]}</div>
-            <div class="improvement">+${epDiff} pts</div>
-            <div class="cost-change ${costClass}">${costStr}</div>
-            <div style="font-size:0.75rem; margin-top:0.2rem; padding:0.2rem 0.6rem; border-radius:4px; font-weight:600;
-              ${rec.verdict === 'Strong' ? 'background:rgba(0,255,135,0.15); color:#00ff87;' : 
-                rec.verdict === 'Moderate' ? 'background:rgba(255,159,67,0.15); color:#ff9f43;' : 
-                'background:rgba(255,107,107,0.15); color:#ff6b6b;'}">
-              ${rec.verdict}
+    function squadRow(p) {
+      const badge = p.captain ? `<span class="badge">C</span>` : p.vice ? `<span class="badge vice">V</span>` : "";
+      const next = p.xp_by_gw[0].fixtures.join(", ") || "No fixture";
+      const parts = Object.entries(p.breakdown)
+        .filter(([, v]) => Math.abs(v) >= 0.05)
+        .map(([k, v]) => `<div><span>${BREAKDOWN_LABELS[k]}</span><span>${v > 0 ? "+" : ""}${v.toFixed(1)}</span></div>`)
+        .join("");
+      return `
+        <div class="row squad-row" onclick="this.classList.toggle('open'); this.nextElementSibling.classList.toggle('open')">
+          <div class="row-main">
+            <span class="pos">${p.position}</span>
+            <div>
+              <div class="row-title">${p.name}${badge}</div>
+              <div class="row-sub">${p.team} · ${next}</div>
             </div>
           </div>
-        `;
-        container.appendChild(card);
-      });
+          <div class="row-right"><span class="row-value">${p.xp.toFixed(1)}</span><span class="chev">›</span></div>
+        </div>
+        <div class="breakdown">
+          <div class="breakdown-grid">${parts}</div>
+          <div style="margin-top:0.5rem;">Next 6 GWs: ${p.xp_horizon} pts · sells for £${p.selling_price}m</div>
+        </div>`;
     }
 
-    function setLoading(on) {
-      document.getElementById("loadingStatus").classList.toggle("visible", on);
-      document.getElementById("analyseBtn").disabled = on;
+    function renderLineup(squad) {
+      $("lineupList").innerHTML = squad.filter(p => p.starting).map(squadRow).join("");
+      $("bench").innerHTML = squad.filter(p => !p.starting)
+        .sort((a, b) => a.bench_order - b.bench_order).map(squadRow).join("");
     }
 
-    async function loadFixtures(teamId) {
-      try {
-        const res = await fetch(`/fixtures?team_id=${teamId}`);
-        const data = await res.json();
-        if (data.error) return;
+    function moveRow(m, right) {
+      return `
+        <div class="move">
+          <div>
+            <div class="label">Out · ${m.out.position}</div>
+            <div class="row-title">${m.out.name}</div>
+            <div class="row-sub">${m.out.team} · sells £${m.out.sell}m · ${m.out.xp_horizon} pts</div>
+          </div>
+          <div class="arrow">→</div>
+          <div>
+            <div class="label">In</div>
+            <div class="row-title">${m.in.name}</div>
+            <div class="row-sub">${m.in.team} · £${m.in.price}m · ${m.in.xp_horizon} pts</div>
+          </div>
+          <div class="row-right">${right}</div>
+        </div>`;
+    }
 
-        const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
-        const container = document.getElementById("fixtureTicker");
-        container.innerHTML = "";
+    function renderTransfers(t) {
+      $("transferHint").textContent =
+        `You have ${t.free} free transfer${t.free === 1 ? "" : "s"}. Gains are predicted points over the next 6 gameweeks, after any hits.`;
 
-        // Sort: starters first, then by position
-        data.players.sort((a, b) => {
-          if (a.is_starter !== b.is_starter) return b.is_starter - a.is_starter;
-          return a.position - b.position;
-        });
+      $("transferOptions").innerHTML = t.options.map(o => {
+        const detail = o.moves.length
+          ? o.moves.map(m => `${m.out.name} → ${m.in.name}`).join("<br>")
+          : "Bank it for next week";
+        const net = o.moves.length ? `${o.net >= 0 ? "+" : ""}${o.net} pts` : "—";
+        return `
+          <div class="option ${o.best ? "best" : ""}">
+            <div class="option-label"><span>${o.label}</span>${o.best ? `<span class="up" style="font-weight:600">Recommended</span>` : ""}</div>
+            <div class="option-net ${o.net > 0 && o.moves.length ? "up" : ""}">${net}</div>
+            <div class="option-move">${detail}</div>
+            ${o.hit ? `<div class="row-sub down">Includes −${o.hit} pt hit</div>` : ""}
+          </div>`;
+      }).join("");
 
-        data.players.forEach(player => {
-          const row = document.createElement("div");
-          row.className = `fixture-row${player.is_starter ? "" : " bench-player"}`;
+      const best = t.options.find(o => o.best);
+      $("transferMoves").innerHTML = best && best.moves.length
+        ? `<div class="list">${best.moves.map(m => moveRow(m, "")).join("")}</div>`
+        : `<div class="note" style="background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:0.9rem 1.1rem;font-size:0.9rem;">
+             No transfer is worth more than saving it this week.</div>`;
 
-          const chips = player.fixtures.map(f => {
-            const label = f.home ? f.opponent.substring(0, 3).toUpperCase() : f.opponent.substring(0, 3).toLowerCase();
-            return `<div class="fixture-chip diff-${f.difficulty}" title="${f.opponent} (${f.home ? 'H' : 'A'})">${label}</div>`;
-          }).join("");
+      $("transferAlternatives").innerHTML = t.alternatives.map(a =>
+        moveRow(a.move, `<div class="row-value up">+${a.gain}</div><div class="row-sub">pts</div>`)).join("")
+        || `<div class="empty">No transfers improve your team</div>`;
+    }
 
-          row.innerHTML = `
-            <div class="pos-badge">${POSITION_NAMES[player.position]}</div>
-            <div style="font-weight:600; font-size:0.9rem;">${player.player}</div>
-            <div style="font-size:0.8rem; color:var(--muted);">${player.team}</div>
-            ${chips}
-          `;
-          container.appendChild(row);
-        });
+    const POSITION_ORDER = ["GK", "DEF", "MID", "FWD"];
 
-        document.getElementById("fixtureSection").style.display = "block";
-      } catch (err) {
-        console.error("Fixture load error:", err);
-      }
+    function renderTopTabs(active = "MID") {
+      $("topTabs").innerHTML = POSITION_ORDER.filter(pos => topPlayers[pos]).map(pos =>
+        `<button class="tab ${pos === active ? "active" : ""}" onclick="renderTopTabs('${pos}')">${pos}</button>`).join("");
+      $("topPlayers").innerHTML = topPlayers[active].map(p => `
+        <div class="row">
+          <div>
+            <div class="row-title">${p.name}${p.in_squad ? `<span class="pill">In your team</span>` : ""}</div>
+            <div class="row-sub">${p.team} · £${p.price}m · ${p.fixtures.join(", ") || "No fixture"} · ${p.owned}% owned</div>
+          </div>
+          <div class="row-right">
+            <div class="row-value">${p.xp.toFixed(1)}</div>
+            <div class="row-sub">${p.xp_horizon} over 6</div>
+          </div>
+        </div>`).join("");
+    }
+
+    function renderPlanner(squad, gws) {
+      const max = Math.max(...squad.flatMap(p => p.xp_by_gw.map(g => g.xp)), 1);
+      const shade = v => {
+        const t = Math.min(v / max, 1);
+        return `background: rgba(31, 122, 77, ${(0.06 + t * 0.5).toFixed(2)}); color: ${t > 0.7 ? "#fff" : "var(--text)"}`;
+      };
+      const head = `<tr><th>Player</th>${gws.map(g => `<th>GW${g}</th>`).join("")}<th>Total</th></tr>`;
+      const rows = squad.map(p => `
+        <tr class="${p.starting ? "" : "bench"}">
+          <td><span class="pos" style="display:inline-block">${p.position}</span>${p.name}</td>
+          ${p.xp_by_gw.map(g => `<td><div class="cell" style="${shade(g.xp)}">
+              <b>${g.fixtures.length ? g.xp.toFixed(1) : "–"}</b>
+              <span class="opp" style="${g.xp / max > 0.7 ? "color:#e6f2eb" : ""}">${g.fixtures.join(", ") || "Blank"}</span>
+            </div></td>`).join("")}
+          <td><b>${p.xp_horizon}</b></td>
+        </tr>`).join("");
+      $("plannerTable").innerHTML = head + rows;
+    }
+
+    function renderChips(chips) {
+      $("chips").style.display = chips.length ? "block" : "none";
+      document.querySelector('.nav a[href="#chips"]').style.display = chips.length ? "" : "none";
+      $("chipsList").innerHTML = chips.map(c => {
+        const extras = [];
+        if (c.double_gws && c.double_gws.length) extras.push(`Double gameweeks for your players: GW${c.double_gws.join(", GW")}`);
+        if (c.blank_gws && c.blank_gws.length) extras.push(`Blank gameweeks: GW${c.blank_gws.join(", GW")}`);
+        return `
+          <div class="chip-row">
+            <div class="row-title">${c.chip} <span class="row-sub">· use by GW${c.expires}</span></div>
+            <div class="row-sub" style="color:var(--text)">${c.advice}</div>
+            ${extras.map(e => `<div class="row-sub">${e}</div>`).join("")}
+          </div>`;
+      }).join("");
     }
 
     async function loadPriceChanges() {
-      document.getElementById("priceBtn").disabled = true;
-      document.getElementById("priceBtn").textContent = "Loading...";
+      const btn = $("priceBtn");
+      btn.disabled = true;
+      btn.textContent = "Loading…";
       try {
         const res = await fetch("/price-changes");
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
+        const fmt = iso => new Date(iso).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+        const meta = [];
+        if (data.next_change) meta.push(`Next price update ${fmt(data.next_change)}`);
+        if (data.last_updated) meta.push(`FPL data updated ${fmt(data.last_updated)}`);
+        if (meta.length) $("priceHint").textContent = meta.join(" · ");
+
         renderPricePlayers("risingPlayers", data.risers, true);
         renderPricePlayers("fallingPlayers", data.fallers, false);
-        document.getElementById("priceSection").style.display = "block";
+        $("priceSection").style.display = "block";
       } catch (err) {
         showError(err.message);
       } finally {
-        document.getElementById("priceBtn").disabled = false;
-        document.getElementById("priceBtn").textContent = "Check Price Changes";
+        btn.disabled = false;
+        btn.textContent = "Refresh price changes";
       }
     }
 
     function renderPricePlayers(containerId, players, rising) {
-      const container = document.getElementById(containerId);
-      container.innerHTML = "";
-      players.forEach(p => {
-        const div = document.createElement("div");
-        div.style.cssText = "background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.2rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;";
-        const ratioStr = rising ? `+${p.ownership_ratio}%` : `${p.ownership_ratio}%`;
-        const ratioColor = rising ? "#00ff87" : "#ff6b6b";
-        div.innerHTML = `
+      const container = $(containerId);
+      container.innerHTML = players.map(p => `
+        <div class="row">
           <div>
-            <div style="font-weight:600;">${p.player}</div>
-            <div style="font-size:0.8rem; color:var(--muted);">${p.team} · £${p.cost}m · ${p.selected_by}% owned</div>
+            <div class="row-title">${p.player}</div>
+            <div class="row-sub">${p.team} · £${p.cost}m · ${p.selected_by}%</div>
           </div>
-          <div style="font-family:'Bebas Neue',sans-serif; font-size:1.2rem; color:${ratioColor};">${ratioStr}</div>
-        `;
-        container.appendChild(div);
-      });
-
-      if (players.length === 0) {
-        container.innerHTML = `<div style="color:var(--muted); font-size:0.9rem; padding:1rem;">No players currently near a price change</div>`;
-      }
-    }
-
-    function clearResults() {
-      document.getElementById("recommendations").innerHTML = "";
-      document.getElementById("benchSwaps").innerHTML = "";
-      document.getElementById("errorMsg").classList.remove("visible");
-      document.getElementById("squadInfo").classList.remove("visible");
-      document.getElementById("resultsHeader").classList.remove("visible");
-      document.getElementById("captainSection").style.display = "none";
-      document.getElementById("benchSwapSection").style.display = "none";
-      document.getElementById("rollSection").style.display = "none";
-      document.getElementById("fixtureSection").style.display = "none";
-      document.getElementById("fixtureTicker").innerHTML = "";
-      document.getElementById("differentialSection").style.display = "none";
-      document.getElementById("differentialPlayers").innerHTML = "";
-    }
-
-    function renderDifferentials(players) {
-      const container = document.getElementById("differentialPlayers");
-      const POSITION_NAMES = { 1: "GKP", 2: "DEF", 3: "MID", 4: "FWD" };
-      players.forEach(p => {
-        const div = document.createElement("div");
-        div.style.cssText = "background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1rem 1.5rem; margin-bottom:0.75rem; display:flex; justify-content:space-between; align-items:center;";
-        div.innerHTML = `
-          <div>
-            <div style="font-weight:600;">${p.player}</div>
-            <div style="font-size:0.8rem; color:var(--muted);">${p.team} · £${p.cost}m · ${POSITION_NAMES[p.position]}</div>
+          <div class="row-right">
+            <div class="row-value ${rising ? "up" : "down"}">${p.projected_progress > 0 ? "+" : ""}${p.projected_progress}%</div>
+            <div class="row-sub">${Math.abs(p.likelihood)}/5 likely</div>
           </div>
-          <div style="text-align:right;">
-            <div style="font-family:'Bebas Neue',sans-serif; font-size:1.2rem; color:var(--green);">${p.ep_next} pts</div>
-            <div style="font-size:0.75rem; color:var(--muted);">${p.selected_by}% owned</div>
-          </div>
-        `;
-        container.appendChild(div);
-      });
-      document.getElementById("differentialSection").style.display = "block";
+        </div>`).join("") || `<div class="empty">No players close to a change</div>`;
     }
 
     function showError(msg) {
-      const el = document.getElementById("errorMsg");
-      el.textContent = msg;
-      el.classList.add("visible");
+      $("errorMsg").textContent = msg;
+      $("errorMsg").classList.add("visible");
     }
 
-    document.getElementById("teamId").addEventListener("keydown", e => {
+    $("teamId").addEventListener("keydown", e => {
       if (e.key === "Enter") analyse();
     });
+
+    // Remember the last team ID on this device
+    try {
+      const saved = localStorage.getItem("fplTeamId");
+      if (saved) $("teamId").value = saved;
+    } catch (e) {}
+
+    function toggleMenu(open) {
+      const show = open ?? !$("sidebar").classList.contains("open");
+      $("sidebar").classList.toggle("open", show);
+      $("scrim").classList.toggle("open", show);
+    }
+
+    document.querySelectorAll(".nav a").forEach(a => a.addEventListener("click", () => toggleMenu(false)));
+
+    // Highlight the section currently on screen
+    const navLinks = [...document.querySelectorAll(".nav a")];
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        const target = entry.target.dataset.nav || entry.target.id;
+        navLinks.forEach(a => a.classList.toggle("active", a.getAttribute("href") === `#${target}`));
+      });
+    }, { rootMargin: "-80px 0px -60% 0px" });
+    document.querySelectorAll("main section[id]").forEach(sec => observer.observe(sec));
   </script>
 </body>
 </html>

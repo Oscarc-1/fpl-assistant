@@ -3,6 +3,7 @@
 
 # Python cache and virtual environments
 __pycache__/
+backend/.cache/
 *.pyc
 venv/
 .venv/
