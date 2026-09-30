@@ -4,6 +4,7 @@
 # Python cache and virtual environments
 __pycache__/
 backend/.cache/
+backend/predictions/
 *.pyc
 venv/
 .venv/

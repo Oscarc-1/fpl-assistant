@@ -4,6 +4,7 @@ from statistics import median
 
 from fpl import (get_bootstrap_data, get_fixtures, get_all_element_summaries, get_current_gameweek,
                  get_active_squad, get_entry_history, get_entry_transfers, cached_get)
+from accuracy import save_snapshot
 from model import Predictor
 from planner import (HORIZON, TransferPlanner, available_chips, best_lineup, free_hit_points,
                      free_transfers, selling_prices)
@@ -23,6 +24,7 @@ def get_predictor():
         gw = get_current_gameweek(bootstrap["events"])
         _predictor_cache["predictor"] = Predictor(bootstrap, fixtures, summaries, gw)
         _predictor_cache["built"] = time.time()
+        save_snapshot(_predictor_cache["predictor"])
     return _predictor_cache["predictor"]
 
 

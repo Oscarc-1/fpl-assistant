@@ -2,8 +2,13 @@ import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
-from fpl import get_bootstrap_data
-from recommender import analyse_team
+from accuracy import accuracy_report
+from fpl import get_bootstrap_data, get_fixtures, get_all_element_summaries, get_user_squad
+from recommender import analyse_team, get_predictor
+
+
+def predictor_summaries(bootstrap):
+    return get_all_element_summaries([p["id"] for p in bootstrap["elements"]])
 
 app = Flask(__name__)
 
@@ -20,6 +25,18 @@ def analysis():
 
     try:
         return jsonify(analyse_team(int(team_id)))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/accuracy")
+def accuracy():
+    team_id = request.args.get("team_id", "").strip()
+    try:
+        predictor = get_predictor()  # also records this gameweek's predictions
+        data = get_bootstrap_data()
+        return jsonify(accuracy_report(data, get_fixtures(), predictor_summaries(data),
+                                       int(team_id) if team_id.isdigit() else None, get_user_squad))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -353,6 +353,12 @@
     .cell .opp { font-size: 0.65rem; color: var(--muted); display: block; }
     .cell b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
+    /* accuracy */
+    table.accuracy-table { min-width: 0; }
+    table.accuracy-table td, table.accuracy-table th { padding: 0.5rem 0.4rem; font-variant-numeric: tabular-nums; }
+    .better { color: var(--up); font-weight: 600; }
+    .diff { font-size: 0.8rem; margin-left: 0.4rem; }
+
     /* chips */
     .chip-row { padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
     .chip-name { font-weight: 500; }
@@ -452,6 +458,7 @@
         <div class="nav-label">Research</div>
         <a href="#top-picks" class="disabled" data-team>Top picks</a>
         <a href="#prices">Price changes</a>
+        <a href="#accuracy">Accuracy</a>
         <div class="nav-label">Help</div>
         <a href="#about">How it works</a>
       </nav>
@@ -540,6 +547,39 @@
                 <div class="list" id="fallingPlayers"></div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section id="accuracy">
+          <h2>Accuracy</h2>
+          <button class="secondary" onclick="loadAccuracy()" id="accuracyBtn">Check accuracy</button>
+          <p class="hint">How our predictions compared with what players actually scored, against FPL's own number (recent form)</p>
+          <div id="accuracySection" style="display:none; margin-top:1.5rem;">
+            <div class="stats" id="accuracyStats"></div>
+            <p class="hint" id="accuracySummary" style="margin:-1.5rem 0 2rem;"></p>
+
+            <div id="accuracySquadWrap">
+              <h3 id="accuracySquadTitle"></h3>
+              <div class="list" id="accuracySquad"></div>
+            </div>
+
+            <h3>Our top 10 picks last gameweek</h3>
+            <div class="list" id="accuracyTop"></div>
+
+            <div class="price-grid">
+              <div>
+                <h3 class="up">Beat their prediction</h3>
+                <div class="list" id="accuracyOver"></div>
+              </div>
+              <div>
+                <h3 class="down">Fell short</h3>
+                <div class="list" id="accuracyUnder"></div>
+              </div>
+            </div>
+
+            <h3>Gameweek by gameweek</h3>
+            <div class="grid-wrap"><table class="planner accuracy-table" id="accuracyTable"></table></div>
+            <p class="hint" id="accuracyNote"></p>
           </div>
         </section>
 
@@ -797,6 +837,88 @@
             <div class="row-sub">${Math.abs(p.likelihood)}/5 likely</div>
           </div>
         </div>`).join("") || `<div class="empty">No players close to a change</div>`;
+    }
+
+    async function loadAccuracy() {
+      const btn = $("accuracyBtn");
+      btn.disabled = true;
+      btn.textContent = "Loading…";
+      try {
+        const teamId = $("teamId").value.trim();
+        const res = await fetch(`/accuracy${teamId ? `?team_id=${encodeURIComponent(teamId)}` : ""}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        renderAccuracy(data);
+        $("accuracySection").style.display = "block";
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Refresh accuracy";
+      }
+    }
+
+    function renderAccuracy(d) {
+      if (!d.season) {
+        $("accuracyStats").innerHTML = "";
+        $("accuracySummary").textContent = "No finished gameweeks to check yet.";
+        return;
+      }
+      const s = d.season, m = s.model, f = s.form;
+      const stat = (label, value) => `<div><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+      $("accuracyStats").innerHTML =
+        stat("Gameweeks checked", `GW${s.from_gw}–${s.to_gw}`) +
+        stat("Our average miss", `${m.mae.toFixed(2)} pts`) +
+        stat("FPL form's miss", `${f.mae.toFixed(2)} pts`) +
+        stat("Our top picks scored", `${m.top50.toFixed(2)}`);
+      $("accuracySummary").textContent =
+        `Per player, our predictions were off by ${m.mae.toFixed(2)} points on average, against ${f.mae.toFixed(2)} for FPL's form. ` +
+        `The 50 players we rated highest each week averaged ${m.top50.toFixed(2)} points, against ${f.top50.toFixed(2)} for form's top 50.`;
+
+      const L = d.latest;
+      const row = (p, right) => `
+        <div class="row">
+          <div class="row-main">
+            <span class="pos">${p.position}</span>
+            <div>
+              <div class="row-title">${p.name}${p.captain ? `<span class="badge">C</span>` : ""}</div>
+              <div class="row-sub">${p.team} · predicted ${p.xp.toFixed(1)}</div>
+            </div>
+          </div>
+          <div class="row-right">${right}</div>
+        </div>`;
+      const scored = p => {
+        const diff = p.actual - p.xp;
+        const cls = diff >= 0 ? "up" : "down";
+        return `<span class="row-value">${p.actual}</span><span class="diff ${cls}">${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(1)}</span>`;
+      };
+
+      if (L.squad) {
+        $("accuracySquadWrap").style.display = "block";
+        const chip = L.chip ? ` (${L.chip === "freehit" ? "Free Hit" : L.chip === "bboost" ? "Bench Boost" : L.chip === "3xc" ? "Triple Captain" : "Wildcard"})` : "";
+        $("accuracySquadTitle").textContent = `Your team in GW${L.gw}${chip}: predicted ${L.squad_xp}, scored ${L.squad_actual}`;
+        $("accuracySquad").innerHTML = L.squad.filter(p => p.starting).map(p => row(p, scored(p))).join("");
+      } else {
+        $("accuracySquadWrap").style.display = "none";
+      }
+      $("accuracyTop").innerHTML = L.top_predicted.map(p => row(p, scored(p))).join("");
+      $("accuracyOver").innerHTML = L.over.map(p => row(p, scored(p))).join("");
+      $("accuracyUnder").innerHTML = L.under.map(p => row(p, scored(p))).join("");
+
+      const cell = (ours, theirs, lowerBetter) => {
+        const better = lowerBetter ? ours < theirs : ours > theirs;
+        return `<td class="${better ? "better" : ""}">${ours.toFixed(2)}</td><td>${theirs.toFixed(2)}</td>`;
+      };
+      $("accuracyTable").innerHTML = `
+        <tr><th>Gameweek</th><th>Our miss</th><th>Form's miss</th><th>Our top picks</th><th>Form's top picks</th></tr>
+        ${d.gameweeks.map(w => `<tr>
+          <td>GW${w.gw}${w.source === "rebuilt" ? " *" : ""}</td>
+          ${cell(w.model.mae, w.form.mae, true)}
+          ${cell(w.model.top50, w.form.top50, false)}
+        </tr>`).join("")}`;
+      $("accuracyNote").textContent = d.gameweeks.some(w => w.source === "rebuilt")
+        ? "* Rebuilt: the app wasn't recording yet, so these use only matches before the deadline and no injury news from the time. From now on, the app records exactly what it predicted before each deadline. Green means we beat FPL's form."
+        : "Green means we beat FPL's form.";
     }
 
     function showError(msg) {

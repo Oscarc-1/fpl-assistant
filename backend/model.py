@@ -15,6 +15,7 @@ Constants in PARAMS are chosen by backtest.py rather than by hand.
 """
 import math
 import re
+import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -624,10 +625,17 @@ def news_return_date(news, year):
 
 # ---------- putting it together ----------
 
+_BUILD_LOCK = threading.Lock()  # building uses module-level tables (TAKERS, TYPICAL_XG, ...)
+
+
 class Predictor:
     """Builds every player's model once, then answers xP questions for upcoming gameweeks."""
 
     def __init__(self, bootstrap, fixtures, summaries, before_gw, params=PARAMS, use_news=True):
+        with _BUILD_LOCK:
+            self._build(bootstrap, fixtures, summaries, before_gw, params, use_news)
+
+    def _build(self, bootstrap, fixtures, summaries, before_gw, params, use_news):
         self.bootstrap = bootstrap
         self.fixtures = fixtures
         PENALTY_MODE[0] = params["penalty_mode"]
