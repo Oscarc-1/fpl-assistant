@@ -29,29 +29,30 @@ TYPICAL_XG = {}             # player id -> typical xG per match, to judge how un
 PENALTY_MODE = ["prob"]     # set from PARAMS["penalty_mode"] by the Predictor
 DC_THRESHOLD = {"GKP": None, "DEF": 10, "MID": 12, "FWD": 12}
 
+# Tuned on 2025/26 odd gameweeks (`backtest.py --season 2025-26 --tune`), kept only after
+# also improving 2025/26 even gameweeks and all of 2024/25.
 PARAMS = {
-    "decay": 0.85,              # weight kept per gameweek further in the past
-    "minutes_decay": 0.4,       # same, for who starts (lineups change faster than underlying stats)
-    "prior_minutes": 900,       # how much past seasons count, in minutes of this-season evidence
-    "team_prior_matches": 4,    # how much FPL's pre-season team strength counts, in matches
-    "team_prior_scale": 0.18,   # how far apart FPL's 2-5 strength ratings put teams
-    "goal_weight": 0.2,         # share of actual goals (vs xG) in team ratings
+    "decay": 0.8,               # weight kept per gameweek further in the past
+    "minutes_decay": 0.55,      # same, for who starts (lineups change faster than underlying stats)
+    "prior_minutes": 450,       # how much past seasons count, in minutes of this-season evidence
+    "team_prior_matches": 16,   # how much FPL's pre-season team strength counts, in matches
+    "team_prior_scale": 0.3,    # how far apart FPL's 2-5 strength ratings put teams
+    "goal_weight": 0.0,         # share of actual goals (vs xG) in team ratings
     "start_prior_matches": 0.5, # how much last season's start rate counts, in matches
     "picked_prior": 0.75,       # chance a player is picked when a place is open to him, before evidence
     "picked_prior_matches": 1,  # how much that prior counts, in matches
     # Unknown in past gameweeks (no historical injury news), so the backtest assumes every player
     # has the league's typical chance of being fit: 7.6% of regular starters are injured or
     # suspended at any one time (measured from FPL's flags)
-    "backtest_availability": 0.924,
-    # Chance of being picked when a place is open = logistic(a + b * log-odds of his record),
+    "backtest_availability": 0.924,# Chance of being picked when a place is open = logistic(a + b * log-odds of his record),
     # fitted on past gameweeks by `backtest.py --tune-starts`
-    "start_calibration": (-0.5, 2.0),
+    "start_calibration": (-0.5, 1.5),
     "sub_prior_matches": 0.5,   # how much the typical chance of coming off the bench counts
     # "none": penalties stay inside xG; "hard"/"prob": taken out of xG and predicted from the taker order
     "penalty_mode": "prob",
-    "dc_dispersion": 1.75,      # game-to-game spread of defensive contributions (1 = Poisson)
-    "conceded_shape": 6,        # uncertainty in a team's expected goals against (lower = more)
-    "newcomer_prior_minutes": 180,  # how much the position/team average counts for players with no PL history
+    "dc_dispersion": 1.0,       # game-to-game spread of defensive contributions (1 = Poisson)
+    "conceded_shape": 1000,     # uncertainty in a team's expected goals against (lower = more)
+    "newcomer_prior_minutes": 90,# how much the position/team average counts for players with no PL history
     "finishing_shrink": 40,     # xG of evidence needed before a player's own finishing counts half
     "assist_shrink": 7,         # same for FPL assists vs xA (assists stick to players much more)
 }
@@ -235,15 +236,21 @@ def match_penalties(row, is_taker=True):
     return missed + possible * prior / (prior + (1 - prior) * open_play_chance)
 
 
-def season_penalties(season):
-    """Rough penalty attempts in a past season, from misses (only totals are available)."""
+def season_penalties(season, is_taker=False):
+    """Rough penalty attempts in a past season (only season totals are available).
+
+    From misses for anyone; for a player who is his club's taker now, assume he also took
+    his team's usual share then, so those penalties aren't counted twice (once inside his
+    past xG and again in the separate penalty part).
+    """
     if PENALTY_MODE[0] == "none":
         return 0
     missed = season["penalties_missed"]
-    if not missed:
-        return 0
-    attempts = round(missed / (1 - PENALTY_CONVERSION))
-    return min(attempts, season["goals_scored"] + missed, int(float(season["expected_goals"]) // PENALTY_XG))
+    attempts = missed / (1 - PENALTY_CONVERSION)
+    if is_taker:
+        attempts = max(attempts, season["minutes"] / 90 * PENALTY_RATE * PENALTY_TAKE)
+    cap = min(season["goals_scored"] + missed, float(season["expected_goals"]) / PENALTY_XG)
+    return min(attempts, cap)
 
 
 def row_stat(row, stat):
@@ -259,9 +266,9 @@ def row_stat(row, stat):
     }[stat](row)
 
 
-def past_stat(season, stat):
+def past_stat(season, stat, is_taker=False):
     return {
-        "xg": lambda s: max(float(s["expected_goals"]) - PENALTY_XG * season_penalties(s), 0.0),
+        "xg": lambda s: max(float(s["expected_goals"]) - PENALTY_XG * season_penalties(s, is_taker), 0.0),
         "xa": lambda s: float(s["expected_assists"]),
         "dc": lambda s: s.get("defensive_contribution") or 0,
         "saves": lambda s: s["saves"],
@@ -270,6 +277,16 @@ def past_stat(season, stat):
         "red": lambda s: s["red_cards"],
         "own_goal": lambda s: s["own_goals"],
     }[stat](season)
+
+
+def season_has(season, stat):
+    """Whether a past season's totals include this stat. FPL added xG/xA in 2022/23 and
+    defensive contributions in 2025/26; earlier seasons show 0, which would look like real data."""
+    if stat in ("xg", "xa", "goals", "assists"):
+        return season_start_year(season["season_name"]) >= 2022
+    if stat == "dc":
+        return "defensive_contribution" in season and season_start_year(season["season_name"]) >= 2025
+    return True
 
 
 def opponent_adjustment(row, stat, ratings, fixtures_by_id):
@@ -295,6 +312,7 @@ class PopulationStats:
         elements = {p["id"]: p for p in bootstrap["elements"]}
 
         # Average per-90 rate by position among last season's regulars
+        # (this season's matches if last season didn't record the stat)
         for pos in POSITIONS:
             for stat in RATE_STATS:
                 total = minutes = 0.0
@@ -302,10 +320,16 @@ class PopulationStats:
                     if elements[pid]["element_type"] != pos:
                         continue
                     past = [x for x in s["history_past"] if x["season_name"] == prev_season]
-                    if not past or past[0]["minutes"] < 900:
+                    if not past or past[0]["minutes"] < 900 or not season_has(past[0], stat):
                         continue
                     total += past_stat(past[0], stat)
                     minutes += past[0]["minutes"]
+                if not minutes:
+                    for pid, s in summaries.items():
+                        if elements[pid]["element_type"] == pos:
+                            for r in match_rows(s, before_gw):
+                                total += row_stat(r, stat)
+                                minutes += r["minutes"]
                 self.position_mean[(pos, stat)] = total / minutes * 90 if minutes else 0.0
 
         # Dispersion: variance of per-match counts relative to a Poisson-like baseline
@@ -332,8 +356,9 @@ class PopulationStats:
             got = exp = 0.0
             for s in summaries.values():
                 for x in s["history_past"][-3:]:
-                    got += x[actual]
-                    exp += float(x[expected])
+                    if season_has(x, stat):
+                        got += x[actual]
+                        exp += float(x[expected])
                 for r in match_rows(s, before_gw):
                     got += r[actual]
                     exp += float(r[expected])
@@ -404,10 +429,10 @@ class PlayerModel:
         for stat in RATE_STATS:
             team_rate = population.team_prior_rate(player["element_type"], stat, self.team, ratings)
             # Defensive contributions were only recorded from 2025/26 onwards
-            seasons = [(s, w) for s, w in past if stat != "dc" or "defensive_contribution" in s]
+            seasons = [(s, w) for s, w in past if season_has(s, stat)]
             stat_minutes = sum(s["minutes"] * w for s, w in seasons)
             if stat_minutes > 0:
-                past_rate = sum(past_stat(s, stat) * w for s, w in seasons) / stat_minutes * 90
+                past_rate = sum(past_stat(s, stat, self.id in TAKERS) * w for s, w in seasons) / stat_minutes * 90
                 trust = stat_minutes / (stat_minutes + 900)
                 prior_rates[stat] = trust * past_rate + (1 - trust) * team_rate
             else:
@@ -429,8 +454,9 @@ class PlayerModel:
         self.finishing = {}
         for stat, actual, expected, shrink in [("goals", "goals_scored", "expected_goals", "finishing_shrink"),
                                                ("assists", "assists", "expected_assists", "assist_shrink")]:
-            got = sum(s[actual] for s, _ in past) + sum(r[actual] for r in rows)
-            exp = sum(float(s[expected]) for s, _ in past) + sum(float(r[expected]) for r in rows)
+            with_xg = [s for s, _ in past if season_has(s, stat)]
+            got = sum(s[actual] for s in with_xg) + sum(r[actual] for r in rows)
+            exp = sum(float(s[expected]) for s in with_xg) + sum(float(r[expected]) for r in rows)
             k = params[shrink]
             league = population.conversion[stat]
             self.finishing[stat] = (got + k * league) / (exp + k)
