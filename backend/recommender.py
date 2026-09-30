@@ -1,20 +1,20 @@
 """Builds everything the frontend shows for a manager, using the xP model and planner."""
 import time
 from concurrent.futures import ThreadPoolExecutor
-from statistics import median
 
 from fpl import (get_bootstrap_data, get_fixtures, get_all_element_summaries, get_current_gameweek,
                  get_active_squad, get_entry_history, get_entry_transfers, cached_get)
 from accuracy import save_snapshot
 from model import Predictor
-from optimizer import best_single_transfers, optimise
-from planner import (FUTURE_WEIGHTS, HIT_COST, HORIZON, MIN_GAIN_PER_MOVE, ROLL_VALUE, WILDCARD_THRESHOLD,
-                     available_chips, best_lineup, free_transfers, selling_prices)
+from chips import chip_plan
+from optimizer import best_single_transfers, plan_transfers
+from planner import (FT_VALUE, FUTURE_WEIGHTS, HIT_COST, HORIZON, MIN_GAIN_PER_HIT, MIN_GAIN_PER_MOVE,
+                     best_lineup, free_transfers, selling_prices)
 
 POSITION_NAMES = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
-CHIP_NAMES = {"wildcard": "Wildcard", "freehit": "Free Hit", "bboost": "Bench Boost", "3xc": "Triple Captain"}
 
 _predictor_cache = {"built": 0, "predictor": None}
+_chip_context = {}  # team id -> inputs for the chip planner from the last analysis
 
 
 def get_predictor():
@@ -78,12 +78,23 @@ def analyse_team(team_id):
     ranked = sorted(starters, key=lambda p: -xp_now[p])
     captain, vice = ranked[0], ranked[1]
 
+    # Who starts in each week of the horizon (the lineup can change week to week)
+    starting_by_gw = {g: set(best_lineup(squad, positions, {p: predictor.xp(p, g) for p in squad})[0]) for g in gws}
+
+    def headline(pid, g):
+        """What the page shows: points if he starts, plus his chance of starting.
+        Decisions (lineup, captain, transfers) still use the chance-adjusted `xp`."""
+        return {"if_starts": round(predictor.points_if_starts(pid, g), 1),
+                "start_chance": round(predictor.start_chance(pid, g), 2)}
+
     squad_rows = []
     for pid in squad:
         info = player_info(pid)
+        info.update(headline(pid, gw))
         info.update({
             "xp": round(xp_now[pid], 1),
-            "xp_by_gw": [{"gw": g, "xp": round(predictor.xp(pid, g), 1),
+            "xp_by_gw": [{"gw": g, "xp": round(predictor.xp(pid, g), 1), **headline(pid, g),
+                          "starting": pid in starting_by_gw[g],
                           "fixtures": fixture_labels(elements[pid]["team"], g)} for g in gws],
             "xp_horizon": round(sum(predictor.xp(pid, g) for g in gws), 1),
             "selling_price": sell[pid],
@@ -91,7 +102,7 @@ def analyse_team(team_id):
             "bench_order": bench.index(pid) + 1 if pid in bench else None,
             "captain": pid == captain,
             "vice": pid == vice,
-            "breakdown": predictor.breakdown(pid, gw),
+            "breakdown": predictor.breakdown(pid, gw, if_starts=True),
         })
         squad_rows.append(info)
     squad_rows.sort(key=lambda r: (not r["starting"], r["bench_order"] or 0,
@@ -102,7 +113,7 @@ def analyse_team(team_id):
     captain_options = []
     for pid in ranked[:5]:
         chances = predictor.upside(pid, gw)
-        captain_options.append(player_info(pid) | {
+        captain_options.append(player_info(pid) | headline(pid, gw) | {
             "xp": round(xp_now[pid], 1),
             "haul": round(chances["haul"], 3),
             "blank": round(chances["blank"], 3),
@@ -122,30 +133,36 @@ def analyse_team(team_id):
                           "in": player_info(in_id) | {"xp_horizon": round(total[in_id], 1)}})
         return moves
 
-    # Solve the plans in parallel (the solver runs outside Python's lock)
-    counts = range(0, min(free + 2, 6) + 1)
+    # Week-by-week plans: for each number of moves this week, the best plan for the following weeks.
+    # Solved in parallel (the solver runs outside Python's lock).
+    counts = list(range(0, min(free + 2, 5) + 1))
     with ThreadPoolExecutor(max_workers=len(counts)) as pool:
-        solved = pool.map(lambda k: optimise(xp_by_gw, gws, weights, elements, squad, sell, bank,
-                                             transfers=k, free=free), counts)
+        solved = pool.map(lambda k: plan_transfers(xp_by_gw, gws, weights, elements, squad, sell, bank, free,
+                                                   FT_VALUE, moves_now=k), counts)
     plans = {k: plan for k, plan in zip(counts, solved) if plan}
     base = plans[0]["value"]
     options = []
     for k, plan in plans.items():
-        gain = plan["value"] + HIT_COST * plan["hits"] - base  # before hits
-        net = plan["value"] - base + (ROLL_VALUE if k == 0 and free < 5 else 0.0)
+        this_week = plan["weeks"][0]
+        later = [{"gw": wk["gw"], "moves": describe(wk), "hits": HIT_COST * wk["hits"]}
+                 for wk in plan["weeks"][1:] if wk["in"]]
         options.append({
-            "label": "Save your transfer" if k == 0 else f"{k} transfer{'s' if k > 1 else ''}",
+            "label": "Save your transfers" if k == 0 else f"{k} transfer{'s' if k > 1 else ''} now",
             "transfers": k,
-            "moves": describe(plan),
-            "gain": round(gain, 1),
-            "hit": HIT_COST * plan["hits"],
-            "net": round(net, 1),
+            "moves": describe(this_week),
+            "hit": HIT_COST * this_week["hits"],
+            "net": round(plan["value"] - base, 1),
+            "later": later,
+            "banked_after": plan["weeks"][1]["free"] if len(plan["weeks"]) > 1 else None,
             "best": False,
         })
-    # Each extra transfer has to earn its place: at least MIN_GAIN_PER_MOVE more than the plan before it
+    # An extra move has to earn its place: MIN_GAIN_PER_MOVE if it's free, MIN_GAIN_PER_HIT more if it
+    # costs a hit (on top of paying for the hit, which is already in `net`)
+    def required(k):
+        return sum(MIN_GAIN_PER_MOVE if i <= free else MIN_GAIN_PER_HIT for i in range(1, k + 1))
     recommended = options[0]
     for option in options[1:]:
-        if option["net"] >= recommended["net"] + MIN_GAIN_PER_MOVE * (option["transfers"] - recommended["transfers"]):
+        if option["net"] - required(option["transfers"]) > recommended["net"] - required(recommended["transfers"]):
             recommended = option
     recommended["best"] = True
 
@@ -158,14 +175,21 @@ def analyse_team(team_id):
     for pos, name in POSITION_NAMES.items():
         n = 3 if pos == 1 else 5
         best = sorted([pid for pid in elements if positions[pid] == pos], key=lambda p: -xp_now[p])[:n]
-        top_players[name] = [player_info(pid) | {
+        top_players[name] = [player_info(pid) | headline(pid, gw) | {
             "xp": round(xp_now[pid], 1),
             "xp_horizon": round(sum(predictor.xp(pid, g) for g in gws), 1),
             "fixtures": fixture_labels(elements[pid]["team"], gw),
             "in_squad": pid in squad,
         } for pid in best]
 
+    # Everything the chip planner needs, kept so /chips doesn't redo the transfer plans
+    _chip_context[team_id] = {
+        "built": _predictor_cache["built"], "history": history, "squad": squad,
+        "plan_weeks": plans[recommended["transfers"]]["weeks"], "sell": sell, "bank": bank, "free": free,
+    }
+
     return {
+        "team_id": team_id,
         "team_name": entry.get("name"),
         "gameweek": gw,
         "gameweeks": gws,
@@ -177,81 +201,8 @@ def analyse_team(team_id):
         "squad": squad_rows,
         "transfers": {"options": options, "alternatives": alternatives, "free": free},
         "top_players": top_players,
-        "chips": chip_advice(predictor, bootstrap, history, squad, sell, bank, gw, elements, positions,
-                             plans, recommended, player_info),
         "alerts": squad_alerts(squad, elements, predictor, gw, player_info),
     }
-
-
-def chip_advice(predictor, bootstrap, history, squad, sell, bank, gw, elements, positions,
-                plans, best_option, player_info):
-    chips = available_chips(bootstrap, history, gw)
-    last_gw = max(e["id"] for e in bootstrap["events"])
-    advice = []
-    for chip in chips:
-        name = CHIP_NAMES[chip["name"]]
-        entry = {"chip": name, "expires": chip["stop_event"]}
-
-        if chip["name"] == "wildcard":
-            # The best squad with unlimited free transfers, against the best normal plan
-            gws = list(range(gw, min(gw + HORIZON, last_gw + 1)))
-            xp_by_gw = {g: {pid: predictor.xp(pid, g) for pid in elements} for g in gws}
-            wildcard = optimise(xp_by_gw, gws, FUTURE_WEIGHTS[:len(gws)], elements, squad, sell, bank)
-            normal = plans[best_option["transfers"]]["value"] - plans[0]["value"]
-            gain = wildcard["value"] - plans[0]["value"]
-            extra = gain - normal
-            entry.update({
-                "gain": round(gain, 1),
-                "normal_gain": round(normal, 1),
-                "changes": len(wildcard["in"]),
-                "squad": [player_info(p) | {"xp_horizon": round(sum(xp_by_gw[g][p] for g in gws), 1),
-                                            "new": p not in squad}
-                          for p in sorted(wildcard["squad"], key=lambda p: (positions[p], -elements[p]["now_cost"]))],
-            })
-            entry["advice"] = (
-                f"Worth playing now: the best Wildcard squad gains {entry['gain']} pts over the next "
-                f"{len(gws)} gameweeks, {round(extra, 1)} more than your best normal transfers."
-                if extra >= WILDCARD_THRESHOLD else
-                f"Hold it. A Wildcard now gains {entry['gain']} pts over {len(gws)} gameweeks, only "
-                f"{round(extra, 1)} more than your best normal transfers ({entry['normal_gain']})."
-            )
-            advice.append(entry)
-            continue
-
-        window = list(range(gw, chip["stop_event"] + 1))
-        by_gw = {}
-        for g in window:
-            xp = {pid: predictor.xp(pid, g) for pid in elements}
-            starters, bench = best_lineup(squad, positions, xp)
-            own = sum(xp[p] for p in starters) + max(xp[p] for p in starters)
-            if chip["name"] == "3xc":
-                by_gw[g] = max(xp[p] for p in starters)
-            elif chip["name"] == "bboost":
-                by_gw[g] = sum(xp[p] for p in bench)
-            elif chip["name"] == "freehit":
-                # The best one-week squad within your team's value, against your own best XI
-                free_hit = optimise({g: xp}, [g], [1.0], elements, squad, sell, bank)
-                by_gw[g] = free_hit["lineups"][g]["points"] - own
-
-        best_gw = max(by_gw, key=by_gw.get)
-        typical = median(by_gw.values())
-        doubles = [g for g in window if any(predictor.fixture_count(elements[p]["team"], g) > 1 for p in squad)]
-        blanks = [g for g in window if sum(predictor.fixture_count(elements[p]["team"], g) == 0 for p in squad) >= 3]
-        entry.update({
-            "best_gw": best_gw,
-            "best_value": round(by_gw[best_gw], 1),
-            "this_week_value": round(by_gw[gw], 1),
-            "typical_value": round(typical, 1),
-            "double_gws": doubles,
-            "blank_gws": blanks,
-        })
-        if best_gw == gw and by_gw[gw] > typical * 1.15:
-            entry["advice"] = "This looks like the best week to play it before it expires."
-        else:
-            entry["advice"] = (f"Hold it. GW{best_gw} currently looks best "
-                               f"({entry['best_value']} pts vs {entry['this_week_value']} this week).")
-        advice.append(entry)
-    return advice
 
 
 def squad_alerts(squad, elements, predictor, gw, player_info):
@@ -282,3 +233,34 @@ def squad_alerts(squad, elements, predictor, gw, player_info):
         elif predictor.fixture_count(p["team"], gw) > 1:
             alerts.append({"player": info, "type": "double", "text": f"Plays twice in GW{gw}"})
     return alerts
+
+
+def plan_chips(team_id):
+    """The chip plan for a team (slow: many optimiser runs), reusing the last analysis's transfer plan."""
+    predictor = get_predictor()
+    context = _chip_context.get(team_id)
+    if not context or context["built"] != _predictor_cache["built"]:
+        analyse_team(team_id)
+        context = _chip_context[team_id]
+    bootstrap = predictor.bootstrap
+    elements = {p["id"]: p for p in bootstrap["elements"]}
+    teams = {t["id"]: t["short_name"] for t in bootstrap["teams"]}
+    result = chip_plan(predictor, bootstrap, context["history"], context["squad"], context["plan_weeks"],
+                       context["sell"], context["bank"], predictor.before_gw, context["free"])
+    for chip in result["chips"]:
+        ids = chip.pop("squad_ids", None)
+        if ids:
+            gws = range(chip["planned_gw"], chip["planned_gw"] + HORIZON)
+            chip["squad"] = [{
+                "name": elements[p]["web_name"], "team": teams[elements[p]["team"]],
+                "position": POSITION_NAMES[elements[p]["element_type"]], "price": elements[p]["now_cost"] / 10,
+                "xp_horizon": round(sum(predictor.xp(p, g) for g in gws if g in predictor.deadlines), 1),
+                "new": p not in (context["squad"] if chip["planned_gw"] == predictor.before_gw
+                                 else _planned_squad(context, chip["planned_gw"] - 1)),
+            } for p in sorted(ids, key=lambda p: (elements[p]["element_type"], -elements[p]["now_cost"]))]
+    return result
+
+
+def _planned_squad(context, gw):
+    weeks = {wk["gw"]: wk for wk in context["plan_weeks"]}
+    return weeks[gw]["squad"] if gw in weeks else context["plan_weeks"][-1]["squad"]

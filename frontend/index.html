@@ -347,7 +347,8 @@
     table.planner th:first-child { text-align: left; }
     table.planner td { padding: 0.25rem; border-bottom: 1px solid var(--line); text-align: center; }
     table.planner td:first-child { text-align: left; white-space: nowrap; padding-right: 0.75rem; }
-    table.planner tr.bench td { opacity: 0.5; }
+    .cell.benched { opacity: 0.4; }
+    .warn { color: var(--warn); }
 
     .cell { border-radius: 5px; padding: 0.25rem 0.2rem; line-height: 1.2; }
     .cell .opp { font-size: 0.65rem; color: var(--muted); display: block; }
@@ -360,6 +361,20 @@
     .diff { font-size: 0.8rem; margin-left: 0.4rem; }
 
     /* chips */
+    .pill.play { background: var(--accent); color: #fff; }
+    .pill.planned { background: var(--accent-soft); color: var(--accent); }
+    .pill.hold { background: #efefec; color: var(--muted); }
+    .bars { display: flex; align-items: flex-end; gap: 3px; height: 64px; margin-top: 0.35rem; }
+    .bar-col { flex: 1; min-width: 14px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+    .bar { width: 100%; background: #d9e8df; border-radius: 3px 3px 0 0; min-height: 2px; }
+    .bar.planned { background: var(--accent); }
+    .bar-label { font-size: 0.65rem; color: var(--faint); margin-top: 2px; }
+    .timeline { display: flex; gap: 0.4rem; min-width: max-content; }
+    .tl-week { border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 0.5rem; min-width: 70px; font-size: 0.75rem; background: var(--surface); }
+    .tl-week.has-chip { border-color: var(--accent); }
+    .tl-gw { font-weight: 600; }
+    .tl-chip { color: var(--accent); font-weight: 500; }
+    .tl-tag { color: var(--muted); }
     .chip-row { padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
     .chip-name { font-weight: 500; }
 
@@ -499,7 +514,7 @@
 
           <section id="lineup">
             <h2>Best lineup</h2>
-            <p class="hint" style="margin:-0.5rem 0 1rem;">Predicted points this gameweek. Tap a player to see where their points come from.</p>
+            <p class="hint" style="margin:-0.5rem 0 1rem;">Points each player is predicted to score if he starts, with his chance of starting. The lineup and captain account for that chance. Tap a player to see where his points come from.</p>
             <div class="list" id="lineupList"></div>
             <h3>Bench</h3>
             <div class="list" id="bench"></div>
@@ -519,13 +534,16 @@
 
           <section id="planner">
             <h2>Next 6 gameweeks</h2>
-            <p class="hint" style="margin:-0.5rem 0 1rem;">Predicted points per gameweek for your squad. Darker green means more points.</p>
+            <p class="hint" style="margin:-0.5rem 0 1rem;">Points if he starts, per gameweek. Darker green means more points; faded means he's on the bench in your best XI that week; a % shows a doubtful starter.</p>
             <div class="grid-wrap"><table class="planner" id="plannerTable"></table></div>
           </section>
 
           <section id="chips">
-            <h2>Chips</h2>
+            <h2>Chip plan</h2>
+            <p class="hint" style="margin:-0.5rem 0 1rem;">When to play each chip before it expires. Each chip is valued in every remaining week using the squad your transfer plan expects you to have then; a Wildcard is compared with the normal transfers you'd make from that same week. It's re-planned every time you load the page, so injuries or a team's form can move a chip.</p>
+            <div class="status" id="chipsLoading"><div class="spinner"></div>Planning your chips… this takes a few seconds.</div>
             <div class="list" id="chipsList"></div>
+            <div class="grid-wrap" style="margin-top:1rem;"><div class="timeline" id="chipsTimeline"></div></div>
           </section>
 
           <section id="top-picks">
@@ -672,7 +690,7 @@
       topPlayers = data.top_players;
       renderTopTabs();
       renderPlanner(data.squad, data.gameweeks);
-      renderChips(data.chips);
+      loadChips(data.team_id);
     }
 
     function renderStats(d) {
@@ -694,6 +712,13 @@
         </div>`).join("");
     }
 
+    // Start chance label: plain when he's nailed, highlighted when it's a real doubt
+    function startLabel(chance) {
+      const pct = Math.round(chance * 100);
+      if (pct >= 90) return `<span class="row-sub">${pct}% to start</span>`;
+      return `<span class="row-sub ${pct >= 60 ? "warn" : "down"}">${pct}% to start</span>`;
+    }
+
     function squadRow(p) {
       const badge = p.captain ? `<span class="badge">C</span>` : p.vice ? `<span class="badge vice">V</span>` : "";
       const next = p.xp_by_gw[0].fixtures.join(", ") || "No fixture";
@@ -710,9 +735,13 @@
               <div class="row-sub">${p.team} · ${next}</div>
             </div>
           </div>
-          <div class="row-right"><span class="row-value">${p.xp.toFixed(1)}</span><span class="chev">›</span></div>
+          <div class="row-right">
+            <div><span class="row-value">${p.if_starts.toFixed(1)}</span><span class="chev">›</span></div>
+            <div>${startLabel(p.start_chance)}</div>
+          </div>
         </div>
         <div class="breakdown">
+          <div style="margin-bottom:0.4rem;">If he starts:</div>
           <div class="breakdown-grid">${parts}</div>
           <div style="margin-top:0.5rem;">Next 6 GWs: ${p.xp_horizon} pts · sells for £${p.selling_price}m</div>
         </div>`;
@@ -736,8 +765,9 @@
             </div>
           </div>
           <div class="row-right">
-            <div class="row-value">${p.xp.toFixed(1)}</div>
+            <div class="row-value">${p.if_starts.toFixed(1)}</div>
             <div class="row-sub"><span class="up">${pct(p.haul)} haul</span> · <span class="down">${pct(p.blank)} blank</span></div>
+            ${p.start_chance < 0.9 ? `<div>${startLabel(p.start_chance)}</div>` : ""}
           </div>
         </div>`).join("");
     }
@@ -762,21 +792,26 @@
 
     function renderTransfers(t) {
       $("transferHint").textContent =
-        `You have ${t.free} free transfer${t.free === 1 ? "" : "s"}. Each plan is the best possible squad for that number ` +
-        `of transfers. Gains are predicted points over the next 6 gameweeks after any hits (later weeks count slightly ` +
-        `less, as they're harder to predict). An extra transfer is only recommended if it adds at least 1 point.`;
+        `You have ${t.free} free transfer${t.free === 1 ? "" : "s"}. Each option is what to do this week, followed by ` +
+        `the best plan for the weeks after (you gain a free transfer each week, up to 5). Points are compared with ` +
+        `saving your transfers, over the next 6 gameweeks and after any hits. Transfers left in the bank count for ` +
+        `about 2 points each, for flexibility. A move is only recommended if it adds at least 1 point, or 2 points ` +
+        `on top of the hit if it costs one, so hits are only suggested when they clearly beat waiting a week.`;
 
+      const moveList = moves => moves.map(m => `${m.out.name} → ${m.in.name}`).join("<br>");
       $("transferOptions").innerHTML = t.options.map(o => {
-        const detail = o.moves.length
-          ? o.moves.map(m => `${m.out.name} → ${m.in.name}`).join("<br>")
-          : "Bank it for next week";
-        const net = o.moves.length ? `${o.net >= 0 ? "+" : ""}${o.net} pts` : "—";
+        const net = o.transfers === 0 ? "—" : `${o.net >= 0 ? "+" : "−"}${Math.abs(o.net)} pts`;
+        const later = o.later.length
+          ? `<div class="row-sub" style="margin-top:0.5rem;">Then: ${o.later.map(l =>
+              `GW${l.gw} ${l.moves.map(m => `${m.out.name} → ${m.in.name}`).join(", ")}${l.hits ? ` (−${l.hits})` : ""}`).join("; ")}</div>`
+          : "";
         return `
           <div class="option ${o.best ? "best" : ""}">
             <div class="option-label"><span>${o.label}</span>${o.best ? `<span class="up" style="font-weight:600">Recommended</span>` : ""}</div>
-            <div class="option-net ${o.net > 0 && o.moves.length ? "up" : ""}">${net}</div>
-            <div class="option-move">${detail}</div>
+            <div class="option-net ${o.net > 0 && o.transfers ? "up" : ""}">${net}</div>
+            <div class="option-move">${o.moves.length ? moveList(o.moves) : "Bank them for later"}</div>
             ${o.hit ? `<div class="row-sub down">Includes −${o.hit} pt hit</div>` : ""}
+            ${later}
           </div>`;
       }).join("");
 
@@ -784,7 +819,7 @@
       $("transferMoves").innerHTML = best && best.moves.length
         ? `<div class="list">${best.moves.map(m => moveRow(m, "")).join("")}</div>`
         : `<div class="note" style="background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:0.9rem 1.1rem;font-size:0.9rem;">
-             No transfer is worth more than saving it this week.</div>`;
+             Save your transfers this week: no move is worth more than keeping it for later.</div>`;
 
       $("transferAlternatives").innerHTML = t.alternatives.map(a =>
         moveRow(a.move, `<div class="row-value up">+${a.gain}</div><div class="row-sub">pts</div>`)).join("")
@@ -803,46 +838,73 @@
             <div class="row-sub">${p.team} · £${p.price}m · ${p.fixtures.join(", ") || "No fixture"} · ${p.owned}% owned</div>
           </div>
           <div class="row-right">
-            <div class="row-value">${p.xp.toFixed(1)}</div>
-            <div class="row-sub">${p.xp_horizon} over 6</div>
+            <div class="row-value">${p.if_starts.toFixed(1)}</div>
+            <div class="row-sub">${Math.round(p.start_chance * 100)}% to start · ${p.xp_horizon} over 6</div>
           </div>
         </div>`).join("");
     }
 
     function renderPlanner(squad, gws) {
-      const max = Math.max(...squad.flatMap(p => p.xp_by_gw.map(g => g.xp)), 1);
+      const max = Math.max(...squad.flatMap(p => p.xp_by_gw.map(g => g.if_starts)), 1);
       const shade = v => {
         const t = Math.min(v / max, 1);
         return `background: rgba(31, 122, 77, ${(0.06 + t * 0.5).toFixed(2)}); color: ${t > 0.7 ? "#fff" : "var(--text)"}`;
       };
       const head = `<tr><th>Player</th>${gws.map(g => `<th>GW${g}</th>`).join("")}<th>Total</th></tr>`;
       const rows = squad.map(p => `
-        <tr class="${p.starting ? "" : "bench"}">
+        <tr>
           <td><span class="pos" style="display:inline-block">${p.position}</span>${p.name}</td>
-          ${p.xp_by_gw.map(g => `<td><div class="cell" style="${shade(g.xp)}">
-              <b>${g.fixtures.length ? g.xp.toFixed(1) : "–"}</b>
-              <span class="opp" style="${g.xp / max > 0.7 ? "color:#e6f2eb" : ""}">${g.fixtures.join(", ") || "Blank"}</span>
+          ${p.xp_by_gw.map(g => `<td><div class="cell ${g.starting ? "" : "benched"}" style="${shade(g.if_starts)}"
+                title="${g.starting ? "In your best XI" : "On the bench in your best XI"} · ${Math.round(g.start_chance * 100)}% to start">
+              <b>${g.fixtures.length ? g.if_starts.toFixed(1) : "–"}</b>
+              <span class="opp" style="${g.if_starts / max > 0.7 ? "color:#e6f2eb" : ""}">${g.fixtures.join(", ") || "Blank"}${g.start_chance < 0.75 && g.fixtures.length ? ` · ${Math.round(g.start_chance * 100)}%` : ""}</span>
             </div></td>`).join("")}
           <td><b>${p.xp_horizon}</b></td>
         </tr>`).join("");
       $("plannerTable").innerHTML = head + rows;
     }
 
-    function renderChips(chips) {
-      $("chips").style.display = chips.length ? "block" : "none";
-      document.querySelector('.nav a[href="#chips"]').style.display = chips.length ? "" : "none";
+    async function loadChips(teamId) {
+      $("chipsList").innerHTML = "";
+      $("chipsTimeline").innerHTML = "";
+      $("chipsLoading").classList.add("visible");
+      try {
+        renderChips(await getJSON(`/chips?team_id=${encodeURIComponent(teamId)}`));
+      } catch (err) {
+        $("chipsList").innerHTML = `<div class="empty">Couldn't plan chips: ${err.message}</div>`;
+      } finally {
+        $("chipsLoading").classList.remove("visible");
+      }
+    }
+
+    function renderChips(data) {
+      const chips = data.chips;
+      $("chips").style.display = "block";
+      if (!chips.length) {
+        $("chipsList").innerHTML = `<div class="empty">No chips left in this half of the season. They reset for GW20.</div>`;
+        return;
+      }
+      const statusLabel = { play: "Play this week", planned: "Planned", hold: "Hold" };
       $("chipsList").innerHTML = chips.map(c => {
-        const extras = [];
-        if (c.double_gws && c.double_gws.length) extras.push(`Double gameweeks for your players: GW${c.double_gws.join(", GW")}`);
-        if (c.blank_gws && c.blank_gws.length) extras.push(`Blank gameweeks: GW${c.blank_gws.join(", GW")}`);
+        const max = Math.max(...c.values.map(v => v.value), 1);
+        const bars = c.values.map(v => `
+          <div class="bar-col" title="GW${v.gw}: ${v.value > 0 ? "+" : ""}${v.value}">
+            <div class="bar ${v.gw === c.planned_gw ? "planned" : ""}" style="height:${Math.max(v.value, 0) / max * 100}%"></div>
+            <div class="bar-label">${v.gw}</div>
+          </div>`).join("");
         return `
           <div class="chip-row">
-            <div class="row-title">${c.chip} <span class="row-sub">· use by GW${c.expires}</span></div>
-            <div class="row-sub" style="color:var(--text)">${c.advice}</div>
-            ${extras.map(e => `<div class="row-sub">${e}</div>`).join("")}
+            <div class="row-title">${c.chip}
+              <span class="pill ${c.status}">${statusLabel[c.status]}${c.status === "planned" ? ` · GW${c.planned_gw}` : ""}</span>
+              <span class="row-sub"> · use by GW${c.expires}</span>
+            </div>
+            <div class="row-sub" style="color:var(--text); margin-top:0.25rem;">${c.advice}</div>
+            ${c.reasons.map(r => `<div class="row-sub">· ${r}</div>`).join("")}
+            <div class="row-sub" style="margin-top:0.5rem;">Points gained by week${c.key === "wildcard" ? " (vs normal transfers)" : c.key === "freehit" ? " (vs your own team)" : ""}:</div>
+            <div class="bars">${bars}</div>
             ${c.squad ? `
               <details class="about" style="margin-top:0.6rem;">
-                <summary>See the Wildcard squad (${c.changes} change${c.changes === 1 ? "" : "s"})</summary>
+                <summary>See the Wildcard squad for GW${c.planned_gw} (${c.changes} change${c.changes === 1 ? "" : "s"})</summary>
                 <div class="list" style="margin-top:0.5rem;">
                   ${c.squad.map(p => `
                     <div class="row">
@@ -858,6 +920,19 @@
                 </div>
               </details>` : ""}
           </div>`;
+      }).join("");
+
+      $("chipsTimeline").innerHTML = data.timeline.map(n => {
+        const tags = [];
+        if (n.after_break) tags.push("After break");
+        if (n.doubles) tags.push(`${n.doubles} teams play twice`);
+        if (n.blanks) tags.push(`${n.blanks} teams blank`);
+        const chip = chips.find(c => c.planned_gw === n.gw && c.status !== "hold");
+        return `<div class="tl-week ${chip ? "has-chip" : ""}">
+          <div class="tl-gw">GW${n.gw}</div>
+          ${chip ? `<div class="tl-chip">${chip.chip}</div>` : ""}
+          ${tags.map(t => `<div class="tl-tag">${t}</div>`).join("")}
+        </div>`;
       }).join("");
     }
 

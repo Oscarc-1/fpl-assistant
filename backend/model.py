@@ -52,6 +52,10 @@ PARAMS = {
     "sub_prior_matches": 0.5,   # how much the typical chance of coming off the bench counts
     # "none": penalties stay inside xG; "hard"/"prob": taken out of xG and predicted from the taker order
     "penalty_mode": "prob",
+    # Per-90 cap on one match's (opponent-adjusted) xG / xA, so a freak game like a hat-trick
+    # can't dominate a player's rate. Improved both 2024/25 and 2025/26; doesn't clip players
+    # whose big numbers are spread across many matches.
+    "match_cap": {"xg": 1.0, "xa": 0.7},
     "dc_dispersion": 1.0,       # game-to-game spread of defensive contributions (1 = Poisson)
     "conceded_shape": 1000,     # uncertainty in a team's expected goals against (lower = more)
     "newcomer_prior_minutes": 90,# how much the position/team average counts for players with no PL history
@@ -303,6 +307,15 @@ def season_has(season, stat):
     return True
 
 
+def capped_match_value(row, stat, value, params):
+    """Stop one freak match (e.g. a hat-trick) from dominating a player's rate: cap a single
+    match's xG / xA at `match_cap` per 90 minutes played."""
+    cap = params["match_cap"].get(stat)
+    if cap is None:
+        return value
+    return min(value, cap * max(row["minutes"], 30) / 90)
+
+
 def opponent_adjustment(row, stat, ratings, fixtures_by_id):
     """How much easier than average this match was for this stat (1.0 = average opponent)."""
     fixture = fixtures_by_id.get(row["fixture"])
@@ -432,7 +445,8 @@ class PlayerModel:
         self.rates = {}
         this_rates, this_minutes = {}, sum(w * r["minutes"] for w, r in zip(self.weights, rows))
         for stat in RATE_STATS:
-            adj_total = sum(w * row_stat(r, stat) / opponent_adjustment(r, stat, ratings, fixtures_by_id)
+            adj_total = sum(w * capped_match_value(r, stat, row_stat(r, stat)
+                                                   / opponent_adjustment(r, stat, ratings, fixtures_by_id), params)
                             for w, r in zip(self.weights, rows) if r["minutes"] > 0)
             this_rates[stat] = adj_total / this_minutes * 90 if this_minutes else 0.0
 
@@ -869,17 +883,22 @@ class Predictor:
             self._cache[key] = total
         return self._cache[key]
 
-    def breakdown(self, player_id, gw):
+    def breakdown(self, player_id, gw, if_starts=False):
+        """Where a player's predicted points come from. With `if_starts`, assume he's fit and starts."""
         model = self.players[player_id]
         totals = defaultdict(float)
-        ps = self.start_chance(player_id, gw)
+        ps = 1.0 if if_starts else self.start_chance(player_id, gw)
         pen = self.penalty_share(player_id, gw)
-        fit = self.fitness(model, gw)
+        fit = 1.0 if if_starts else self.fitness(model, gw)
         for f in self.fixtures_by_gw_team[(gw, model.team)]:
             _, parts, _ = model.fixture_points(f, self.ratings, self.scoring, self.deadlines[gw], ps, pen, fit)
             for k, v in parts.items():
                 totals[k] += v
         return {k: round(v, 2) for k, v in totals.items()}
+
+    def points_if_starts(self, player_id, gw):
+        """Predicted points assuming he's fit and starts (the headline number on the page)."""
+        return sum(self.breakdown(player_id, gw, if_starts=True).values())
 
     def simulate(self, player_id, gw, n=4000, seed=0):
         """Simulated points for a gameweek (a list of n outcomes), for upside and downside."""

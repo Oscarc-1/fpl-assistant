@@ -9,9 +9,10 @@ HORIZON = 6                 # this gameweek and the next 5
 # measured over 2025/26 (backtest correlation 0, 1, ... 5 weeks ahead)
 FUTURE_WEIGHTS = [1.0, 0.96, 0.89, 0.88, 0.84, 0.82]
 HIT_COST = 4
-ROLL_VALUE = 1.0            # rough worth of banking a free transfer for later
-MIN_GAIN_PER_MOVE = 1.0     # an extra transfer must add at least this much to be recommended
-WILDCARD_THRESHOLD = 15.0   # extra points over normal transfers before a Wildcard is recommended
+FT_VALUE = 2.0              # worth of a free transfer still banked after the planning horizon
+                            # ("balanced": flexibility for injuries and later moves)
+MIN_GAIN_PER_MOVE = 1.0     # an extra free-transfer move must add at least this much to be recommended
+MIN_GAIN_PER_HIT = 2.0      # a move that costs a hit must add this much beyond paying for the hit
 
 
 # ---------- the manager's current position ----------

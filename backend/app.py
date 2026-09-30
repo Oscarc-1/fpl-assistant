@@ -4,13 +4,31 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from accuracy import accuracy_report
 from fpl import get_bootstrap_data, get_fixtures, get_all_element_summaries, get_user_squad
-from recommender import analyse_team, get_predictor
+from recommender import analyse_team, get_predictor, plan_chips
 
 
 def predictor_summaries(bootstrap):
     return get_all_element_summaries([p["id"] for p in bootstrap["elements"]])
 
 app = Flask(__name__)
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def code_changed_at():
+    return max(os.path.getmtime(os.path.join(BACKEND_DIR, f)) for f in os.listdir(BACKEND_DIR) if f.endswith(".py"))
+
+
+STARTED_WITH = code_changed_at()
+
+
+@app.before_request
+def refuse_stale_code():
+    """If the code changed since the app started (and it isn't auto-reloading), say so plainly
+    instead of answering with an old version the page no longer matches."""
+    if request.path != "/" and code_changed_at() > STARTED_WITH:
+        return jsonify({"error": "The app's code has been updated since it was started. Restart it in Terminal "
+                                 "(Ctrl + C, then run the start command again) and try again."}), 503
 
 @app.route("/")
 def index():
@@ -25,6 +43,17 @@ def analysis():
 
     try:
         return jsonify(analyse_team(int(team_id)))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/chips")
+def chips():
+    team_id = request.args.get("team_id", "").strip()
+    if not team_id.isdigit():
+        return jsonify({"error": "Enter your numeric FPL team ID"}), 400
+    try:
+        return jsonify(plan_chips(int(team_id)))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -99,4 +128,4 @@ def price_changes():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050)
+    app.run(debug=True, port=5050)  # reloads automatically when the code changes
