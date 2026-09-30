@@ -4,7 +4,8 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from accuracy import accuracy_report
 from fpl import get_bootstrap_data, get_fixtures, get_all_element_summaries, get_user_squad
-from recommender import analyse_team, get_predictor, plan_chips
+from recommender import (EXAMPLE_TEAM_ID, WARM_EXAMPLE, analyse_team, cached_result, get_predictor,
+                         plan_chips, warm_example)
 
 
 def predictor_summaries(bootstrap):
@@ -35,6 +36,18 @@ def index():
     frontend_path = os.path.join(os.path.dirname(__file__), "../frontend")
     return send_from_directory(frontend_path, "index.html")
 
+@app.route("/health")
+def health():
+    """For the host's health checks: cheap, doesn't touch FPL or the model."""
+    return jsonify({"ok": True})
+
+
+@app.route("/config")
+def config():
+    """Settings the page needs (the example team to offer visitors)."""
+    return jsonify({"example_team_id": EXAMPLE_TEAM_ID})
+
+
 @app.route("/analysis")
 def analysis():
     team_id = request.args.get("team_id", "").strip()
@@ -42,7 +55,7 @@ def analysis():
         return jsonify({"error": "Enter your numeric FPL team ID"}), 400
 
     try:
-        return jsonify(analyse_team(int(team_id)))
+        return jsonify(cached_result("analysis", int(team_id), analyse_team))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -53,7 +66,7 @@ def chips():
     if not team_id.isdigit():
         return jsonify({"error": "Enter your numeric FPL team ID"}), 400
     try:
-        return jsonify(plan_chips(int(team_id)))
+        return jsonify(cached_result("chips", int(team_id), plan_chips))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -125,6 +138,10 @@ def price_changes():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+if WARM_EXAMPLE:
+    warm_example()
 
 
 if __name__ == "__main__":

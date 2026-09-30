@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>FPL Assistant</title>
+  <title>xPoints: a fantasy football planner</title>
+  <meta name="description" content="xPoints predicts fantasy football points and plans your lineup, captain, transfers and chips." />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -360,6 +361,10 @@
     .better { color: var(--up); font-weight: 600; }
     .diff { font-size: 0.8rem; margin-left: 0.4rem; }
 
+    .footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: 0.8rem; color: var(--muted); }
+    .footer p { margin-top: 0.4rem; }
+    .footer a { color: var(--accent); }
+
     /* chips */
     .pill.play { background: var(--accent); color: #fff; }
     .pill.planned { background: var(--accent-soft); color: var(--accent); }
@@ -453,7 +458,7 @@
     <button class="menu-btn" id="menuBtn" aria-label="Open menu" onclick="toggleMenu()">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
-    <div class="site-title"><span class="brand">FPL</span> Assistant</div>
+    <div class="site-title"><span class="brand">x</span>Points</div>
     </div>
   </header>
 
@@ -482,7 +487,7 @@
 
     <main>
       <div class="container">
-        <p class="tagline">Get the most points out of your squad</p>
+        <p class="tagline">A fantasy football planner: predicted points, your best lineup and captain, and when to make transfers and play chips.</p>
 
         <section id="overview">
           <h2>Your team</h2>
@@ -491,16 +496,20 @@
             <button id="analyseBtn" onclick="analyse()">Analyse</button>
           </div>
           <p class="hint">
-            Find it on <a href="https://fantasy.premierleague.com" target="_blank">fantasy.premierleague.com</a>
+            Find it on <a href="https://fantasy.premierleague.com" target="_blank" rel="noopener">fantasy.premierleague.com</a>
             → Points → the number in the URL after /entry/
           </p>
+          <p class="hint">No team? <a href="#" onclick="tryExample(); return false;">Try with an example team</a> (the creator's own squad).</p>
         </section>
 
         <div class="error-msg" id="errorMsg"></div>
 
         <div class="status" id="loadingStatus">
           <div class="spinner"></div>
-          Crunching the numbers… the first run can take a few seconds.
+          <div>
+            <div>Predicting points and planning your transfers… <span id="loadingTimer">0s</span></div>
+            <div class="row-sub">This usually takes 5–15 seconds. If the site has been idle it may need up to a minute to wake up first.</div>
+          </div>
         </div>
 
         <div id="results" style="display:none;">
@@ -541,7 +550,7 @@
           <section id="chips">
             <h2>Chip plan</h2>
             <p class="hint" style="margin:-0.5rem 0 1rem;">When to play each chip before it expires. Each chip is valued in every remaining week using the squad your transfer plan expects you to have then; a Wildcard is compared with the normal transfers you'd make from that same week. It's re-planned every time you load the page, so injuries or a team's form can move a chip.</p>
-            <div class="status" id="chipsLoading"><div class="spinner"></div>Planning your chips… this takes a few seconds.</div>
+            <div class="status" id="chipsLoading"><div class="spinner"></div><div>Planning your chips across the half-season… <span id="chipsTimer">0s</span><div class="row-sub">Usually 10–20 seconds: every chip is checked in every remaining gameweek.</div></div></div>
             <div class="list" id="chipsList"></div>
             <div class="grid-wrap" style="margin-top:1rem;"><div class="timeline" id="chipsTimeline"></div></div>
           </section>
@@ -617,6 +626,13 @@
               and 2025/26, these predictions pick better players than FPL's own expected points, which are just recent form.</p>
           </details>
         </section>
+
+        <footer class="footer">
+          <p><b>xPoints</b> is an independent project and isn't affiliated with or endorsed by the Premier League or Fantasy Premier League.</p>
+          <p>Live data comes from the public Fantasy Premier League API. The model was tested on past seasons using the
+            <a href="https://github.com/vaastav/Fantasy-Premier-League" target="_blank" rel="noopener">vaastav/Fantasy-Premier-League</a> dataset.</p>
+          <p>Built by Oscar · <a href="https://github.com/Oscarc-1/fpl-assistant" target="_blank" rel="noopener">source code</a></p>
+        </footer>
       </div>
     </main>
   </div>
@@ -630,6 +646,24 @@
     const $ = id => document.getElementById(id);
 
     // Fetch JSON from the app's server, with a plain-English error if the reply isn't what we expect
+    // A running "12s" counter while something slow is loading
+    function startTimer(id) {
+      const started = Date.now();
+      $(id).textContent = "0s";
+      const tick = setInterval(() => { $(id).textContent = `${Math.round((Date.now() - started) / 1000)}s`; }, 1000);
+      return () => clearInterval(tick);
+    }
+
+    async function tryExample() {
+      try {
+        const cfg = await getJSON("/config");
+        $("teamId").value = cfg.example_team_id;
+        analyse();
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
     async function getJSON(url) {
       let res;
       try {
@@ -656,6 +690,7 @@
 
       $("analyseBtn").disabled = true;
       $("loadingStatus").classList.add("visible");
+      const stopTimer = startTimer("loadingTimer");
       $("errorMsg").classList.remove("visible");
       $("results").style.display = "none";
 
@@ -678,6 +713,7 @@
       } finally {
         $("analyseBtn").disabled = false;
         $("loadingStatus").classList.remove("visible");
+        stopTimer();
       }
     }
 
@@ -868,12 +904,14 @@
       $("chipsList").innerHTML = "";
       $("chipsTimeline").innerHTML = "";
       $("chipsLoading").classList.add("visible");
+      const stopTimer = startTimer("chipsTimer");
       try {
         renderChips(await getJSON(`/chips?team_id=${encodeURIComponent(teamId)}`));
       } catch (err) {
         $("chipsList").innerHTML = `<div class="empty">Couldn't plan chips: ${err.message}</div>`;
       } finally {
         $("chipsLoading").classList.remove("visible");
+        stopTimer();
       }
     }
 

@@ -6,6 +6,7 @@ It maximises predicted points of the best XI plus captain in each gameweek of th
 weighted by how reliable predictions that far ahead are, plus a little for the bench
 (which scores when a starter doesn't play).
 """
+import threading
 from collections import defaultdict
 
 import pulp
@@ -15,7 +16,23 @@ XI_MIN = {1: 1, 2: 3, 3: 2, 4: 1}
 XI_MAX = {1: 1, 2: 5, 3: 5, 4: 3}
 CLUB_LIMIT = 3
 BENCH_WEIGHT = {1: 0.02, 2: 0.1, 3: 0.1, 4: 0.1}  # bench keepers almost never come on
-CANDIDATES_PER_POSITION = 45
+CANDIDATES_PER_POSITION = 25  # plans were identical with 45; smaller models solve with less memory
+
+
+# One solve at a time across the whole app: each solve briefly needs ~100 MB, and solving several
+# at once pushed memory over 1 GB (the free hosting tier has 512 MB). Building models stays parallel.
+_SOLVE_LOCK = threading.Lock()
+
+
+def solve(prob, time_limit):
+    with _SOLVE_LOCK:
+        prob.solve(solver(time_limit))
+
+
+def solver(time_limit):
+    """HiGHS with one thread and a 0.5% optimality gap: plenty accurate here, and it keeps each
+    solve's memory small (the free hosting tier has 512 MB; parallel multi-threaded solves used >1 GB)."""
+    return pulp.HiGHS(msg=False, timeLimit=time_limit, threads=1, gapRel=0.005)
 
 
 def candidates(xp, gws, weights, positions, elements, keep):
@@ -88,7 +105,7 @@ def optimise(xp, gws, weights, elements, current, sell, bank, transfers=None, fr
             prob += xi[p, g] <= squad[p]
             prob += cap[p, g] <= xi[p, g]
 
-    prob.solve(pulp.HiGHS(msg=False, timeLimit=20))
+    solve(prob, 20)
     if pulp.LpStatus[prob.status] != "Optimal":
         return None
 
@@ -227,7 +244,7 @@ def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_val
     objective.append(ft_value * ft_end)
     prob += pulp.lpSum(objective)
 
-    prob.solve(pulp.HiGHS(msg=False, timeLimit=30, mip_rel_gap=0.002))
+    solve(prob, 30)
     if pulp.LpStatus[prob.status] not in ("Optimal", "Not Solved") or prob.objective is None:
         return None
 

@@ -6,6 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 FPL (Fantasy Premier League) assistant: a Flask backend that pulls live data from the public FPL API, predicts expected points (xP) with its own model, and plans lineups, transfers and chips; plus a single static HTML page that displays the results. There is no database, no auth, no build step, and no test suite; `backtest.py` is the way to check model changes.
 
+## Goal and deployment context
+- This app will be linked from Oscar's portfolio website as a live project.
+  Visitors will mostly be recruiters and classmates, often without an FPL team.
+- Near-term goal (do this first): deploy a working public demo.
+  - One service at one URL: Flask serves both the API and the frontend.
+  - A "Try with an example team" button so visitors without a team ID can use it.
+  - A clear loading state for the slow transfer/chip planning (5–15s).
+  - Disable or hide the team-news feature in the public version (API cost,
+    and a personal Claude subscription isn't for powering a public service).
+  - Any secrets or keys go in environment variables, never in the code.
+  - The repo will be made public, so keep it clean and include a good README.
+- Long-term goal (don't build yet): a public product with many users, installable
+  on phones, and a shared team-news feature using the paid API.
+- The name shouldn't make it look like an official Premier League product,
+  and the historical dataset must be credited.
+
 ## Running
 
 Install dependencies with `python3 -m pip install -r requirements.txt` (flask, requests, pulp, highspy). The optimiser uses the HiGHS solver: PuLP's bundled CBC binary is Intel-only and fails on Apple Silicon with "Bad CPU type".
@@ -21,6 +37,8 @@ python3 backtest.py --season 2025-26         # a full past season (~15s; downloa
 python3 backtest.py --season 2025-26 --tune  # tune PARAMS on odd GWs, report on even GWs (~10 min)
 python3 backtest.py --season 2025-26 --tune-starts   # same for the start-chance calibration
 ```
+
+Production (Render, `render.yaml`): `cd backend && gunicorn app:app --workers 1 --threads 4 --timeout 300`. Keep **one worker** so the model and caches are shared. Settings are environment variables: `EXAMPLE_TEAM_ID`, `WARM_EXAMPLE=1` (precompute the example team on startup and after each model rebuild), `MODEL_TTL_SECONDS` (1800 in production, 300 locally) and `MALLOC_ARENA_MAX=2`. The free plan has 512 MB RAM and very little CPU: optimiser solves are serialised app-wide (`optimizer._SOLVE_LOCK`), because parallel solves used over 1 GB; results are cached per team until the model rebuilds (`recommender.cached_result`); and the chip planner checks the Wildcard every week for 4 weeks, then every other week. `/health` is the health check and `/config` gives the page the example team.
 
 Without `--reload`, the server refuses API requests with a 503 "restart the app" error once any backend `.py` file changes after startup (`refuse_stale_code`), because the frontend is served fresh and would otherwise mismatch. Port 5000 is taken by macOS AirPlay Receiver (returns an empty 403), so use 5050. Everything hits `https://fantasy.premierleague.com/api` live; responses are cached as JSON in `backend/.cache/` (gitignored) with per-endpoint TTLs in `fpl.py`.
 
@@ -61,3 +79,4 @@ Without `--reload`, the server refuses API requests with a 503 "restart the app"
 - Chips come twice (GW1–19 and GW20–38); the windows are in `bootstrap["chips"]`. Up to 5 free transfers can be banked (`max_extra_free_transfers` + 1).
 - FPL team IDs are per-season; an old ID 404s on the picks endpoint.
 - Many numeric fields (`form`, `ep_next`, `selected_by_percent`, `expected_goals`, `threat`) arrive as strings.
+

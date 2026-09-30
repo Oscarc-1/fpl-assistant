@@ -94,7 +94,7 @@ def chip_plan(predictor, bootstrap, history, current_squad, plan_weeks, sell, ba
         if "freehit" in names:
             free_hit = optimise({g: pts}, [g], [1.0], elements, squad, sell_all, bank)
             out["freehit"] = free_hit["lineups"][g]["points"] - own if free_hit else 0.0
-        if "wildcard" in names:
+        if "wildcard" in names and g in wildcard_weeks:
             gws = list(range(g, min(g + HORIZON, last_gw + 1)))
             weights = FUTURE_WEIGHTS[:len(gws)]
             horizon_xp = {h: xp(h) for h in gws}
@@ -113,7 +113,10 @@ def chip_plan(predictor, bootstrap, history, current_squad, plan_weeks, sell, ba
         xp(g)
         for h in range(g, min(g + HORIZON, last_gw + 1)):
             xp(h)
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    # Wildcard checks are the expensive part (two big optimiser solves each): every week for the next
+    # 4 weeks, then every other week (predictions far ahead are flatter, so fine detail adds little)
+    wildcard_weeks = {g for g in window if g - gw < 4 or (g - gw) % 2 == 0}
+    with ThreadPoolExecutor(max_workers=2) as pool:
         results = dict(pool.map(week_values, window))
     wildcard_squads = {}
     for g, out in results.items():

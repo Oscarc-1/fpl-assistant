@@ -1,0 +1,23 @@
+# Render blueprint: one web service serving the API and the page.
+# Render → New → Blueprint → pick this repository.
+services:
+  - type: web
+    name: xpoints
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # One worker so the model and caches are shared; threads for concurrent visitors.
+    # Long timeout: planning can be slow on a small instance.
+    startCommand: cd backend && gunicorn app:app --workers 1 --threads 4 --timeout 300 --bind 0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: EXAMPLE_TEAM_ID
+        value: "408324"
+      - key: WARM_EXAMPLE          # precompute the example team so visitors get it instantly
+        value: "1"
+      - key: MODEL_TTL_SECONDS     # rebuild the model every 30 minutes (FPL data changes a few times a day)
+        value: "1800"
+      - key: MALLOC_ARENA_MAX      # keeps memory use down with threads on Linux (512 MB on the free plan)
+        value: "2"

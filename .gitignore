@@ -14,3 +14,6 @@ venv/
 
 # JavaScript packages (reinstallable)
 node_modules/
+
+# Microsoft Office temporary files (created while a document is open)
+~$*

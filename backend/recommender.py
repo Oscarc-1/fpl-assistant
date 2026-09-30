@@ -1,5 +1,8 @@
 """Builds everything the frontend shows for a manager, using the xP model and planner."""
+import os
+import threading
 import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from fpl import (get_bootstrap_data, get_fixtures, get_all_element_summaries, get_current_gameweek,
@@ -13,21 +16,62 @@ from planner import (FT_VALUE, FUTURE_WEIGHTS, HIT_COST, HORIZON, MIN_GAIN_PER_H
 
 POSITION_NAMES = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 
+# Settings from the environment (see render.yaml for the public deployment)
+EXAMPLE_TEAM_ID = int(os.environ.get("EXAMPLE_TEAM_ID", "408324"))
+MODEL_TTL = int(os.environ.get("MODEL_TTL_SECONDS", "300"))       # how long to reuse the built model
+WARM_EXAMPLE = os.environ.get("WARM_EXAMPLE", "0") == "1"          # precompute the example team
+
 _predictor_cache = {"built": 0, "predictor": None}
+_predictor_lock = threading.Lock()
 _chip_context = {}  # team id -> inputs for the chip planner from the last analysis
+_results = {}       # (kind, team id) -> (model build time, result)
+_team_locks = defaultdict(threading.Lock)
 
 
 def get_predictor():
-    """Building the model takes a few seconds, so reuse it for 5 minutes."""
-    if time.time() - _predictor_cache["built"] > 300:
-        bootstrap = get_bootstrap_data()
-        fixtures = get_fixtures()
-        summaries = get_all_element_summaries([p["id"] for p in bootstrap["elements"]])
-        gw = get_current_gameweek(bootstrap["events"])
-        _predictor_cache["predictor"] = Predictor(bootstrap, fixtures, summaries, gw)
-        _predictor_cache["built"] = time.time()
-        save_snapshot(_predictor_cache["predictor"])
+    """Building the model takes a few seconds, so reuse it for MODEL_TTL seconds."""
+    rebuilt = False
+    with _predictor_lock:
+        if time.time() - _predictor_cache["built"] > MODEL_TTL:
+            bootstrap = get_bootstrap_data()
+            fixtures = get_fixtures()
+            summaries = get_all_element_summaries([p["id"] for p in bootstrap["elements"]])
+            gw = get_current_gameweek(bootstrap["events"])
+            _predictor_cache["predictor"] = Predictor(bootstrap, fixtures, summaries, gw)
+            _predictor_cache["built"] = time.time()
+            save_snapshot(_predictor_cache["predictor"])
+            rebuilt = True
+    if rebuilt and WARM_EXAMPLE:
+        warm_example()
     return _predictor_cache["predictor"]
+
+
+def cached_result(kind, team_id, compute):
+    """Reuse a team's results until the model is rebuilt (the planning is slow), and never compute
+    the same team twice at once (e.g. the background warm-up and a visitor)."""
+    with _team_locks[(kind, team_id)]:
+        get_predictor()
+        built = _predictor_cache["built"]
+        hit = _results.get((kind, team_id))
+        if hit and hit[0] == built:
+            return hit[1]
+        result = compute(team_id)
+        _results[(kind, team_id)] = (built, result)
+        if len(_results) > 100:  # keep memory bounded: drop the oldest entries
+            for key in sorted(_results, key=lambda k: _results[k][0])[:20]:
+                _results.pop(key, None)
+        return result
+
+
+def warm_example():
+    """Work out the example team in the background so visitors trying it get results straight away."""
+    def run():
+        try:
+            cached_result("analysis", EXAMPLE_TEAM_ID, analyse_team)
+            cached_result("chips", EXAMPLE_TEAM_ID, plan_chips)
+        except Exception as e:  # a failed warm-up just means the first visitor computes it
+            print(f"Example team warm-up failed: {e}")
+    threading.Thread(target=run, daemon=True).start()
 
 
 def analyse_team(team_id):
