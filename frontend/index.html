@@ -499,7 +499,7 @@
             Find it on <a href="https://fantasy.premierleague.com" target="_blank" rel="noopener">fantasy.premierleague.com</a>
             → Points → the number in the URL after /entry/
           </p>
-          <p class="hint">No team? <a href="#" onclick="tryExample(); return false;">Try with an example team</a> (the creator's own squad).</p>
+          <p class="hint">No team? <a href="#" onclick="tryExample(); return false;">Try with an example team</a> (the creator's own squad)<span id="exampleUpdated"></span>.</p>
         </section>
 
         <div class="error-msg" id="errorMsg"></div>
@@ -508,7 +508,7 @@
           <div class="spinner"></div>
           <div>
             <div>Predicting points and planning your transfers… <span id="loadingTimer">0s</span></div>
-            <div class="row-sub">This usually takes 5–15 seconds. If the site has been idle it may need up to a minute to wake up first.</div>
+            <div class="row-sub" id="loadingNote">This usually takes 5–15 seconds. If the site has been idle it may need up to a minute to wake up first.</div>
           </div>
         </div>
 
@@ -637,6 +637,7 @@
     </main>
   </div>
 
+  <script src="config.js" onerror="window.XPOINTS_CONFIG = {}"></script>
   <script>
     const BREAKDOWN_LABELS = {
       appearance: "Minutes", goals: "Goals", assists: "Assists", clean_sheet: "Clean sheet",
@@ -664,20 +665,46 @@
       }
     }
 
+    // Static build (GitHub Pages): the example team, price changes and accuracy are pre-calculated
+    // files published with the page; anything else goes to the calculation server (CONFIG.api).
+    // Served by Flask (locally or on Render), CONFIG is empty and everything is same-origin.
+    const CONFIG = window.XPOINTS_CONFIG || {};
+
+    function isExample(teamId) {
+      return CONFIG.static && String(teamId) === String(CONFIG.exampleTeamId);
+    }
+
+    function resolveURL(url) {
+      if (!CONFIG.static) return url;
+      const u = new URL(url, location.href);
+      const team = u.searchParams.get("team_id");
+      const path = u.pathname.replace(/^.*\//, "/");
+      if (path === "/config") return "data/config.json";
+      if (path === "/price-changes") return "data/price-changes.json";
+      if (["/analysis", "/chips", "/accuracy"].includes(path) && (isExample(team) || (path === "/accuracy" && !team))) {
+        return `data${path}-example.json`;
+      }
+      return CONFIG.api + path + u.search;
+    }
+
     async function getJSON(url) {
       let res;
       try {
-        res = await fetch(url);
+        res = await fetch(resolveURL(url));
       } catch (e) {
-        throw new Error("Can't reach the app's server. Check it's still running in Terminal.");
+        throw new Error(CONFIG.static
+          ? "Couldn't reach the calculation server. It may still be waking up: try again in a minute."
+          : "Can't reach the app's server. Check it's still running in Terminal.");
       }
       const text = await res.text();
       let data;
       try {
         data = JSON.parse(text);
       } catch (e) {
-        throw new Error(`The app's server sent an unexpected reply (HTTP ${res.status}). ` +
-          "If the app was just updated, restart it in Terminal (Ctrl + C, then run it again).");
+        throw new Error(CONFIG.static
+          ? `The calculation server sent an unexpected reply (HTTP ${res.status}). It may be busy or waking up: try again in a minute.`
+          : `The app's server sent an unexpected reply (HTTP ${res.status}). ` +
+            "If the app was just updated, restart it in Terminal (Ctrl + C, then run it again).");
       }
       if (data.error) throw new Error(data.error);
       return data;
@@ -689,6 +716,12 @@
       if (!teamId) return;
 
       $("analyseBtn").disabled = true;
+      if (CONFIG.static && !isExample(teamId)) {
+        $("loadingNote").textContent = "Your team is calculated live on a small free server, which sleeps when idle: " +
+          "it can take a minute to wake up and a few minutes to plan. The example team loads instantly.";
+      } else if (CONFIG.static) {
+        $("loadingNote").textContent = "Loading the pre-calculated example team…";
+      }
       $("loadingStatus").classList.add("visible");
       const stopTimer = startTimer("loadingTimer");
       $("errorMsg").classList.remove("visible");
@@ -1101,6 +1134,11 @@
     $("teamId").addEventListener("keydown", e => {
       if (e.key === "Enter") analyse();
     });
+
+    if (CONFIG.static && CONFIG.generated) {
+      const when = new Date(CONFIG.generated).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+      $("exampleUpdated").textContent = `, updated ${when}`;
+    }
 
     // Remember the last team ID on this device
     try {

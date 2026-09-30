@@ -58,13 +58,23 @@ Everything is fetched live from the public FPL API and cached in `backend/.cache
 
 ## Deployment
 
-`render.yaml` deploys it as a single web service on [Render](https://render.com): Flask serves both the API and the page through gunicorn. Settings come from environment variables:
+The site has two parts, so visitors never wait for a server to wake up:
+
+- **The page, on GitHub Pages.** A scheduled GitHub Actions workflow (`.github/workflows/publish-site.yml`) runs twice a day. It calculates the example team's predictions, transfer plan and chip plan, plus price changes and accuracy, and publishes them as static files alongside the page (`scripts/build_static.py`). The page and the example team load instantly.
+- **The calculation server, on Render** (`render.yaml`, free plan). It's only used when someone enters their own team ID. Flask with gunicorn serves the same API, and allows the GitHub Pages site to call it (`ALLOWED_ORIGINS`).
+
+Server settings (environment variables):
 
 | Variable | Purpose |
 |---|---|
 | `EXAMPLE_TEAM_ID` | The team the "Try with an example team" button loads |
-| `WARM_EXAMPLE` | `1` to precompute the example team in the background, so it loads instantly |
+| `WARM_EXAMPLE` | `1` to precompute the example team in the background |
 | `MODEL_TTL_SECONDS` | How long to reuse the built model before refreshing FPL data |
+| `ALLOWED_ORIGINS` | Sites allowed to call the API (the GitHub Pages address, and any custom domain) |
+
+Build settings (GitHub repository variables, all optional): `XPOINTS_API_URL` (the calculation server), `EXAMPLE_TEAM_ID`, `SITE_DOMAIN` (a custom domain).
+
+You can also run everything as one service: `app.py` serves the page itself, as when running locally.
 
 ## Project structure
 
@@ -82,6 +92,8 @@ backend/
   history.py      loads past seasons for testing
 frontend/
   index.html      the whole page (HTML, CSS and JavaScript)
+scripts/
+  build_static.py builds the static site with pre-calculated example data
 ```
 
 ## Credits

@@ -1,0 +1,62 @@
+# Publishes the static site to GitHub Pages with the example team pre-calculated.
+# Runs twice a day (fresh predictions), on every push to main, and on demand (Actions → Run workflow).
+name: Publish site
+
+on:
+  schedule:
+    - cron: "0 6 * * *"    # 06:00 UTC
+    - cron: "0 17 * * *"   # 17:00 UTC
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Keep each gameweek's saved predictions between runs, for the accuracy page
+      - uses: actions/cache@v4
+        with:
+          path: backend/predictions
+          key: predictions-${{ github.run_id }}
+          restore-keys: predictions-
+
+      - name: Build the site
+        env:
+          XPOINTS_API_URL: ${{ vars.XPOINTS_API_URL || 'https://xpoints-q85o.onrender.com' }}
+          EXAMPLE_TEAM_ID: ${{ vars.EXAMPLE_TEAM_ID || '408324' }}
+          SITE_DOMAIN: ${{ vars.SITE_DOMAIN }}
+        run: python scripts/build_static.py
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

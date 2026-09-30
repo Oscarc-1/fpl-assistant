@@ -23,6 +23,19 @@ def code_changed_at():
 STARTED_WITH = code_changed_at()
 
 
+# Sites allowed to call this API from another address (the static GitHub Pages site), comma-separated
+ALLOWED_ORIGINS = {o.strip().rstrip("/") for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()}
+
+
+@app.after_request
+def allow_static_site(response):
+    origin = request.headers.get("Origin", "").rstrip("/")
+    if origin in ALLOWED_ORIGINS:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
+    return response
+
+
 @app.before_request
 def refuse_stale_code():
     """If the code changed since the app started (and it isn't auto-reloading), say so plainly

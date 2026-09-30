@@ -21,3 +21,5 @@ services:
         value: "1800"
       - key: MALLOC_ARENA_MAX      # keeps memory use down with threads on Linux (512 MB on the free plan)
         value: "2"
+      - key: ALLOWED_ORIGINS       # the static site (GitHub Pages) that calls this API
+        value: "https://oscarc-1.github.io"

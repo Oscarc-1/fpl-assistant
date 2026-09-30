@@ -17,3 +17,6 @@ node_modules/
 
 # Microsoft Office temporary files (created while a document is open)
 ~$*
+
+# Static site build output (published by GitHub Actions)
+site/
