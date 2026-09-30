@@ -503,6 +503,9 @@
             <div class="list" id="lineupList"></div>
             <h3>Bench</h3>
             <div class="list" id="bench"></div>
+            <h3>Captain options</h3>
+            <p class="hint" style="margin:0 0 0.75rem;">Captain is the highest predicted score. Haul and blank chances show each option's upside and risk (from thousands of simulated games), useful when you need to take a gamble or play it safe.</p>
+            <div class="list" id="captainOptions"></div>
           </section>
 
           <section id="transfers">
@@ -607,6 +610,26 @@
       bonus: "Bonus", cards: "Cards", penalties: "Penalties"
     };
     const $ = id => document.getElementById(id);
+
+    // Fetch JSON from the app's server, with a plain-English error if the reply isn't what we expect
+    async function getJSON(url) {
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (e) {
+        throw new Error("Can't reach the app's server. Check it's still running in Terminal.");
+      }
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`The app's server sent an unexpected reply (HTTP ${res.status}). ` +
+          "If the app was just updated, restart it in Terminal (Ctrl + C, then run it again).");
+      }
+      if (data.error) throw new Error(data.error);
+      return data;
+    }
     let topPlayers = {};
 
     async function analyse() {
@@ -619,9 +642,11 @@
       $("results").style.display = "none";
 
       try {
-        const res = await fetch(`/analysis?team_id=${encodeURIComponent(teamId)}`);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
+        const data = await getJSON(`/analysis?team_id=${encodeURIComponent(teamId)}`);
+        if (!data.captain_options) {
+          throw new Error("The app's server is running an older version than this page. " +
+            "Restart it in Terminal (Ctrl + C, then run it again) and try again.");
+        }
         render(data);
         $("results").style.display = "block";
         document.querySelectorAll(".nav a[data-team]").forEach(a => a.classList.remove("disabled"));
@@ -642,6 +667,7 @@
       renderStats(data);
       renderAlerts(data.alerts);
       renderLineup(data.squad);
+      renderCaptainOptions(data.captain_options);
       renderTransfers(data.transfers);
       topPlayers = data.top_players;
       renderTopTabs();
@@ -698,6 +724,24 @@
         .sort((a, b) => a.bench_order - b.bench_order).map(squadRow).join("");
     }
 
+    function renderCaptainOptions(options) {
+      const pct = x => `${Math.round(x * 100)}%`;
+      $("captainOptions").innerHTML = options.map(p => `
+        <div class="row">
+          <div class="row-main">
+            <span class="pos">${p.position}</span>
+            <div>
+              <div class="row-title">${p.name}${p.captain ? `<span class="badge">C</span>` : ""}</div>
+              <div class="row-sub">${p.team} · ${p.fixtures.join(", ") || "No fixture"}</div>
+            </div>
+          </div>
+          <div class="row-right">
+            <div class="row-value">${p.xp.toFixed(1)}</div>
+            <div class="row-sub"><span class="up">${pct(p.haul)} haul</span> · <span class="down">${pct(p.blank)} blank</span></div>
+          </div>
+        </div>`).join("");
+    }
+
     function moveRow(m, right) {
       return `
         <div class="move">
@@ -718,7 +762,9 @@
 
     function renderTransfers(t) {
       $("transferHint").textContent =
-        `You have ${t.free} free transfer${t.free === 1 ? "" : "s"}. Gains are predicted points over the next 6 gameweeks, after any hits.`;
+        `You have ${t.free} free transfer${t.free === 1 ? "" : "s"}. Each plan is the best possible squad for that number ` +
+        `of transfers. Gains are predicted points over the next 6 gameweeks after any hits (later weeks count slightly ` +
+        `less, as they're harder to predict). An extra transfer is only recommended if it adds at least 1 point.`;
 
       $("transferOptions").innerHTML = t.options.map(o => {
         const detail = o.moves.length
@@ -794,6 +840,23 @@
             <div class="row-title">${c.chip} <span class="row-sub">· use by GW${c.expires}</span></div>
             <div class="row-sub" style="color:var(--text)">${c.advice}</div>
             ${extras.map(e => `<div class="row-sub">${e}</div>`).join("")}
+            ${c.squad ? `
+              <details class="about" style="margin-top:0.6rem;">
+                <summary>See the Wildcard squad (${c.changes} change${c.changes === 1 ? "" : "s"})</summary>
+                <div class="list" style="margin-top:0.5rem;">
+                  ${c.squad.map(p => `
+                    <div class="row">
+                      <div class="row-main">
+                        <span class="pos">${p.position}</span>
+                        <div>
+                          <div class="row-title">${p.name}${p.new ? `<span class="pill">New</span>` : ""}</div>
+                          <div class="row-sub">${p.team} · £${p.price}m</div>
+                        </div>
+                      </div>
+                      <div class="row-right"><div class="row-value">${p.xp_horizon}</div><div class="row-sub">over 6</div></div>
+                    </div>`).join("")}
+                </div>
+              </details>` : ""}
           </div>`;
       }).join("");
     }
@@ -803,9 +866,7 @@
       btn.disabled = true;
       btn.textContent = "Loading…";
       try {
-        const res = await fetch("/price-changes");
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
+        const data = await getJSON("/price-changes");
 
         const fmt = iso => new Date(iso).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
         const meta = [];
@@ -845,9 +906,7 @@
       btn.textContent = "Loading…";
       try {
         const teamId = $("teamId").value.trim();
-        const res = await fetch(`/accuracy${teamId ? `?team_id=${encodeURIComponent(teamId)}` : ""}`);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
+        const data = await getJSON(`/accuracy${teamId ? `?team_id=${encodeURIComponent(teamId)}` : ""}`);
         renderAccuracy(data);
         $("accuracySection").style.display = "block";
       } catch (err) {

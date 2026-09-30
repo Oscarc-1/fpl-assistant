@@ -14,6 +14,7 @@ contributions, saves, bonus, cards). Each part is built from:
 Constants in PARAMS are chosen by backtest.py rather than by hand.
 """
 import math
+import random
 import re
 import threading
 from collections import defaultdict
@@ -91,6 +92,18 @@ def negbin_tail(mean, dispersion, n):
         term *= (k - 1 + r) / k * (1 - p)
         cdf += term
     return max(0.0, 1.0 - cdf)
+
+
+def poisson(rng, lam):
+    """A Poisson random draw (Knuth's method; rates here are small)."""
+    if lam <= 0:
+        return 0
+    limit, k, p = math.exp(-lam), 0, 1.0
+    while True:
+        p *= rng.random()
+        if p <= limit:
+            return k
+        k += 1
 
 
 def mixed_poisson_zero(lam, shape):
@@ -600,6 +613,66 @@ class PlayerModel:
 
         return sum(parts.values()), parts, a
 
+    def simulate_fixture(self, fixture, ratings, scoring, deadline, p_start, penalty_share, availability,
+                         rng, bonus_scale):
+        """One random outcome of a fixture, drawn from the same rates as `fixture_points`.
+
+        Returns (points without bonus, "bonus-worthy" returns score). Bonus is added by the caller,
+        scaled so its average matches the expected bonus.
+        """
+        is_home = fixture["team_h"] == self.team
+        opp = fixture["team_a"] if is_home else fixture["team_h"]
+        a = availability
+        ps = min(p_start, a)
+        psub = (a - ps) * self.p_sub
+        u = rng.random()
+        if u < ps:
+            if rng.random() < self.p60:
+                # Minutes given 60+, so the average over all starts matches start_minutes
+                minutes = min(90.0, max(60.0, (self.start_minutes - 45 * (1 - self.p60)) / self.p60))
+            else:
+                minutes = 45.0
+        elif u < ps + psub:
+            minutes = self.sub_minutes
+        else:
+            return 0.0, 0.0
+
+        pos, r = self.pos, self.rates
+        att_mult = ratings.defence[opp] * ratings.home_factor(is_home)
+        conceded_90 = ratings.expected_goals(opp, self.team, not is_home)
+        share = minutes / 90
+
+        pts = 2.0 if minutes >= 60 else 1.0
+        goals = poisson(rng, r["xg"] * self.finishing["goals"] * share * att_mult)
+        assists = poisson(rng, r["xa"] * self.finishing["assists"] * share * att_mult)
+        team_pens = self.penalty_rate * ratings.attack[self.team] * att_mult
+        for _ in range(poisson(rng, team_pens * penalty_share * share)):
+            if rng.random() < PENALTY_CONVERSION:
+                goals += 1
+            else:
+                pts += scoring["penalties_missed"]
+        pts += goals * scoring["goals_scored"][pos] + assists * scoring["assists"]
+
+        conceded = poisson(rng, conceded_90 * share)
+        clean = minutes >= 60 and conceded == 0
+        if clean:
+            pts += scoring["clean_sheets"][pos]
+        pts += (conceded // 2) * scoring["goals_conceded"][pos]
+
+        threshold = DC_THRESHOLD[pos]
+        if threshold and scoring["defensive_contribution"][pos]:
+            if poisson(rng, r["dc"] * share) >= threshold:
+                pts += scoring["defensive_contribution"][pos]
+        if pos == "GKP":
+            save_mult = ratings.attack[opp] / ratings.home_factor(is_home)
+            pts += (poisson(rng, r["saves"] * save_mult * share) // 3) * scoring["saves"]
+        if rng.random() < r["yellow"] * share:
+            pts += scoring["yellow_cards"]
+
+        # Bonus goes mostly to players with goals, assists and (for defenders/keepers) clean sheets
+        returns = goals + 0.6 * assists + (0.6 if clean and pos in ("GKP", "DEF") else 0.0)
+        return pts, returns
+
 
 def shrunk_mean(pairs, prior, k):
     """Weighted mean of (weight, value) pairs, pulled toward `prior` as if it had weight k."""
@@ -807,6 +880,40 @@ class Predictor:
             for k, v in parts.items():
                 totals[k] += v
         return {k: round(v, 2) for k, v in totals.items()}
+
+    def simulate(self, player_id, gw, n=4000, seed=0):
+        """Simulated points for a gameweek (a list of n outcomes), for upside and downside."""
+        model = self.players[player_id]
+        rng = random.Random(seed + player_id * 1000 + gw)
+        ps = self.start_chance(player_id, gw)
+        pen = self.penalty_share(player_id, gw)
+        fit = self.fitness(model, gw)
+        fixtures = self.fixtures_by_gw_team[(gw, model.team)]
+        expected_bonus = self.breakdown(player_id, gw)["bonus"]
+
+        raw = []
+        for _ in range(n):
+            pts = returns = 0.0
+            for f in fixtures:
+                p, ret = model.simulate_fixture(f, self.ratings, self.scoring, self.deadlines[gw],
+                                                ps, pen, fit, rng, 1.0)
+                pts += p
+                returns += ret
+            raw.append((pts, returns))
+        # Bonus: 1-3 points for the bigger returns, scaled so the average matches the expected bonus
+        raw_bonus = [min(3, 1 + int(ret)) if ret > 0 else 0 for _, ret in raw]
+        mean_raw = sum(raw_bonus) / n
+        keep = min(1.0, expected_bonus / mean_raw) if mean_raw else 0.0
+        return [pts + (b if rng.random() < keep else 0) for (pts, _), b in zip(raw, raw_bonus)]
+
+    def upside(self, player_id, gw, n=4000):
+        """Chance of a haul (10+ points) and of a blank (2 or fewer), from simulation."""
+        outcomes = self.simulate(player_id, gw, n)
+        return {
+            "haul": sum(1 for p in outcomes if p >= 10) / n,
+            "blank": sum(1 for p in outcomes if p <= 2) / n,
+            "mean": sum(outcomes) / n,
+        }
 
     def fixture_count(self, team_id, gw):
         return len(self.fixtures_by_gw_team[(gw, team_id)])
