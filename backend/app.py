@@ -40,7 +40,9 @@ def allow_static_site(response):
 def refuse_stale_code():
     """If the code changed since the app started (and it isn't auto-reloading), say so plainly
     instead of answering with an old version the page no longer matches."""
-    if request.path != "/" and code_changed_at() > STARTED_WITH:
+    if request.path in ("/", "/manifest.webmanifest") or request.path.startswith("/icons/"):
+        return None
+    if code_changed_at() > STARTED_WITH:
         return jsonify({"error": "The app's code has been updated since it was started. Restart it in Terminal "
                                  "(Ctrl + C, then run the start command again) and try again."}), 503
 
@@ -48,6 +50,19 @@ def refuse_stale_code():
 def index():
     frontend_path = os.path.join(os.path.dirname(__file__), "../frontend")
     return send_from_directory(frontend_path, "index.html")
+
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../frontend")
+
+
+@app.route("/manifest.webmanifest")
+def manifest():
+    return send_from_directory(FRONTEND_DIR, "manifest.webmanifest", mimetype="application/manifest+json")
+
+
+@app.route("/icons/<path:name>")
+def icons(name):
+    return send_from_directory(os.path.join(FRONTEND_DIR, "icons"), name)
+
 
 @app.route("/health")
 def health():

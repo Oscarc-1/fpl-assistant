@@ -52,6 +52,8 @@ def main():
             json.dump(data, f)
 
     shutil.copy(os.path.join(ROOT, "frontend", "index.html"), os.path.join(SITE, "index.html"))
+    shutil.copy(os.path.join(ROOT, "frontend", "manifest.webmanifest"), os.path.join(SITE, "manifest.webmanifest"))
+    shutil.copytree(os.path.join(ROOT, "frontend", "icons"), os.path.join(SITE, "icons"))
     config = {"static": True, "api": API, "exampleTeamId": EXAMPLE,
               "generated": datetime.now(timezone.utc).isoformat()}
     with open(os.path.join(SITE, "config.js"), "w") as f:
