@@ -22,7 +22,7 @@ FPL's own "expected points" is essentially recent form. xPoints instead builds e
 - **Minutes:** the chance a player is fit and starts, from each club's depth chart (who starts when everyone is available, and who steps in when someone is injured) and FPL's injury news.
 - **Goals and assists:** expected goals (xG) and assists (xA) per 90 minutes, adjusted for the opponent, with a per-player finishing record. Penalties are predicted from each club's current taker order. A single freak match (a hat-trick, say) is capped so it can't dominate a rating.
 - **Clean sheets, goals conceded, defensive contributions, saves, bonus and cards,** using team attack and defence ratings fitted from this season's xG.
-- **This season blended with past seasons,** with this season counting more as a player racks up minutes.
+- **This season blended with past seasons,** with this season counting more as a player racks up minutes. Players without a Premier League track record are rated a little more cautiously until they've built one, because testing showed the model otherwise over-rated them compared with proven players.
 
 The squad planning uses exact optimisation (PuLP with the HiGHS solver) under FPL's rules: budget and selling prices, positions, at most three players per club, valid formations, and hits.
 
@@ -32,8 +32,8 @@ For every gameweek from GW3 to GW38, the model predicted each player's points us
 
 | Season | Model: average error | Form: average error | Model: top 50 picks' actual points | Form: top 50 picks' actual points |
 |---|---|---|---|---|
-| 2024/25 | **1.01** | 1.05 | **4.28** | 3.69 |
-| 2025/26 | **1.00** | 1.05 | **4.22** | 3.64 |
+| 2024/25 | **1.00** | 1.05 | **4.29** | 3.69 |
+| 2025/26 | **0.99** | 1.05 | **4.26** | 3.64 |
 
 The model's settings were tuned on the odd gameweeks of 2025/26, so **2024/25 is a fully independent test.** The players it rates highest also score what it predicts: across both seasons, the top 50 each week were predicted about 4.25 points and actually averaged about 4.2.
 

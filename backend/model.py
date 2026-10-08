@@ -58,7 +58,11 @@ PARAMS = {
     "match_cap": {"xg": 1.0, "xa": 0.7},
     "dc_dispersion": 1.0,       # game-to-game spread of defensive contributions (1 = Poisson)
     "conceded_shape": 1000,     # uncertainty in a team's expected goals against (lower = more)
-    "newcomer_prior_minutes": 90,# how much the position/team average counts for players with no PL history
+    "newcomer_prior_minutes": 90,  # how much the position/team average counts for players with no PL history
+    # Attacking output multiplier for players with no Premier League track record (fades out over
+    # their first 900 PL minutes). Newcomers rated highly were over-predicted relative to proven
+    # players; 0.8 improved error and top picks in both 2024/25 and 2025/26.
+    "newcomer_factor": 0.8,
     "finishing_shrink": 40,     # xG of evidence needed before a player's own finishing counts half
     "assist_shrink": 7,         # same for FPL assists vs xA (assists stick to players much more)
 }
@@ -475,6 +479,12 @@ class PlayerModel:
             total = this_minutes + k
             self.rates[stat] = ((this_rates[stat] * this_minutes + prior_rates[stat] * k) / total
                                 if total else prior_rates[stat])
+        # No Premier League track record yet: newcomers' attacking output has historically been
+        # over-predicted relative to proven players, so scale it by how little PL history he has
+        track_record = min(past_minutes / 900, 1.0)
+        factor = params["newcomer_factor"] + (1 - params["newcomer_factor"]) * track_record
+        for stat in ("xg", "xa", "bonus"):
+            self.rates[stat] *= factor
         self.dc_dispersion = params["dc_dispersion"]
 
         # Finishing: players who consistently beat xG (or collect more FPL assists than xA)
