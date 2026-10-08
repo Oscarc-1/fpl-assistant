@@ -60,6 +60,16 @@ Without `--reload`, the server refuses API requests with a 503 "restart the app"
   - Clean sheets/goals conceded (`conceded_shape`) and defensive contributions (`dc_dispersion`) have spread settings. The full-season tuning found plain Poisson best for both.
   - Past seasons only feed a stat if that season recorded it (`season_has`): FPL shows xG/xA as 0 before 2022/23 and defensive contributions as absent before 2025/26, which otherwise look like real zeros.
   - `Predictor.simulate`/`upside` draw whole-gameweek outcomes from the same rates (used for captain haul/blank chances). Bonus is allocated to returns and scaled to the expected bonus. Validated on 2024/25 and 2025/26: predicted haul and blank chances match actual frequencies within a few points, though the biggest haul chances are slightly underestimated.
+  - A regular who has just come back after a run of 2+ blank games has those blanks dropped from his start history (`drop_absence_before_return`, `skip_return_gap`). Returning players were badly under-predicted in both seasons without it.
+  - **Audit by subgroup, not just overall.** Whole-model metrics hid real biases. Check predicted vs actual by position, price, newcomer vs established, penalty takers, returning players, opponent strength and season stage, in both past seasons, and per scoring component. Don't filter out fringe players when doing this: it creates fake biases. Tuning by MAE rewards predicting typical outcomes rather than expected values. `backtest.py` now reports MSE and `--tune` optimises it, though MSE tuning (2026-10-08) found no change that held up on unseen gameweeks.
+  - Known open issues (as of 2026-10-08):
+    - Premiums (£6.5m+) are under-predicted by about 0.25–0.35 a game in both seasons, mostly through sub appearances when rested; in backtests rest and injury blanks are indistinguishable.
+    - Forwards and penalty takers are about +0.1 per game under-predicted.
+    - Fixture strength is slightly under-weighted.
+    - Defensive-contribution hits are under-counted in total (raising `dc_dispersion` made rankings worse; this needs per-player variability).
+    - Stale FPL flags are taken at face value (managers can override).
+    - Hand-set constants (`PENALTY_TAKE`, `PENALTY_SAVED`, the injury recovery ramp) are untested.
+    - There's no awareness of European or cup fixtures.
   - `PARAMS` holds the tunable constants. Change them only with backtest evidence: tune on one season's odd GWs, then confirm on its even GWs **and** on another season (2024/25), because three gameweeks of the live season are far too noisy to tune on.
 - **`history.py`**: loads past seasons from the public vaastav/Fantasy-Premier-League dataset (cached in `backend/.cache/history/`) into the same shapes as the live API, linking players across seasons by `code`. Limits: penalty order and positions are end-of-season snapshots, and the dataset's `xP` column leaks results, so it's not used.
 - **`planner.py`**: `best_lineup` (formation-constrained greedy, which is optimal for these bounds), free-transfer replay from entry history, selling prices (FPL keeps half of any rise; Free Hit transfers ignored), chip windows, and planning constants (`FUTURE_WEIGHTS` = measured prediction accuracy by weeks ahead, `HIT_COST`, `ROLL_VALUE`, `MIN_GAIN_PER_MOVE`, `WILDCARD_THRESHOLD`).

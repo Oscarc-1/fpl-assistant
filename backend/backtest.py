@@ -69,6 +69,7 @@ def score(pred, actual, only=None):
     ids = [pid for pid in actual if pid in pred and (only is None or pid in only)]
     errors = [pred[i] - actual[i] for i in ids]
     mae = sum(abs(e) for e in errors) / len(errors)
+    mse = sum(e * e for e in errors) / len(errors)
     bias = sum(errors) / len(errors)
     mp = sum(pred[i] for i in ids) / len(ids)
     ma = sum(actual[i] for i in ids) / len(ids)
@@ -78,7 +79,7 @@ def score(pred, actual, only=None):
     corr = cov / (sp * sa) if sp and sa else 0.0
     top = sorted(ids, key=lambda i: -pred[i])[:min(50, len(ids) // 4)]
     top50 = sum(actual[i] for i in top) / len(top)
-    return {"mae": mae, "corr": corr, "top50": top50, "bias": bias}
+    return {"mae": mae, "mse": mse, "corr": corr, "top50": top50, "bias": bias}
 
 
 def average(results):
@@ -101,7 +102,7 @@ def evaluate(season, gws, params, only=None, built=None):
 
 
 def fmt(name, r):
-    print(f"  {name:<22} MAE {r['mae']:.3f}  corr {r['corr']:.3f}  "
+    print(f"  {name:<22} MAE {r['mae']:.3f}  MSE {r['mse']:.3f}  corr {r['corr']:.3f}  "
           f"top-50 avg actual {r['top50']:.2f}  bias {r['bias']:+.2f}")
 
 
@@ -160,6 +161,11 @@ def tune_starts(season, train, test):
 
 # ---------- tuning ----------
 
+# Tune on squared error: this is an expected-points model, and absolute error rewards predicting
+# the typical outcome (shrinking players with big upside towards average), which under-rated
+# premiums, regular starters and defensive-contribution points.
+TUNE_METRIC = "mse"
+
 TUNE_GRID = {
     "prior_minutes": [450, 900, 1800, 3600],
     "newcomer_prior_minutes": [90, 180, 360, 720],
@@ -169,32 +175,36 @@ TUNE_GRID = {
     "team_prior_scale": [0.1, 0.18, 0.3],
     "goal_weight": [0.0, 0.2, 0.4],
     "conceded_shape": [3, 6, 12, 1000],
-    "dc_dispersion": [1.0, 1.4, 1.75, 2.2],
     "finishing_shrink": [20, 40, 80, 1e9],
     "assist_shrink": [3, 7, 15, 1e9],
     "penalty_mode": ["none", "prob"],
+    "match_cap": [{}, {"xg": 1.5, "xa": 1.0}, {"xg": 1.0, "xa": 0.7}],
+    "newcomer_factor": [0.7, 0.8, 0.9, 1.0],
+    "sub_prior_matches": [0.5, 2, 5],
+    "dc_dispersion": [1.5, 2.0, 2.5],
 }
 
 
 def tune(season, train, test):
     """Coordinate search: change one setting at a time, keep it if the train GWs improve."""
     params = dict(PARAMS)
-    best = evaluate(season, train, params)["mae"]
-    print(f"\nTuning on GW{train[0]}..{train[-1]} (odd), start MAE {best:.4f}")
+    best = evaluate(season, train, params)[TUNE_METRIC]
+    print(f"\nTuning on GW{train[0]}..{train[-1]} (odd), start {TUNE_METRIC} {best:.4f}")
     for _ in range(2):
         for key, values in TUNE_GRID.items():
             for v in values:
                 if v == params[key]:
                     continue
                 trial = dict(params, **{key: v})
-                m = evaluate(season, train, trial)["mae"]
+                m = evaluate(season, train, trial)[TUNE_METRIC]
                 if m < best - 1e-4:
                     best, params = m, trial
-                    print(f"  {key} = {v}: train MAE {m:.4f}")
+                    print(f"  {key} = {v}: train {TUNE_METRIC} {m:.4f}", flush=True)
     changed = {k: params[k] for k in params if params[k] != PARAMS[k]}
     print(f"\nChanged settings: {changed or 'none'}")
     fmt("current, test GWs", evaluate(season, test, PARAMS))
     fmt("tuned, test GWs", evaluate(season, test, params))
+    print(f"\nTuned settings: {params}")
 
 
 def main():

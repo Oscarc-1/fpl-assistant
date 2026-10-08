@@ -49,6 +49,7 @@ PARAMS = {
     "backtest_availability": 0.924,# Chance of being picked when a place is open = logistic(a + b * log-odds of his record),
     # fitted on past gameweeks by `backtest.py --tune-starts`
     "start_calibration": (-0.5, 1.5),
+    "skip_return_gap": True,        # see drop_absence_before_return
     "sub_prior_matches": 0.5,   # how much the typical chance of coming off the bench counts
     # "none": penalties stay inside xG; "hard"/"prob": taken out of xG and predicted from the taker order
     "penalty_mode": "prob",
@@ -56,7 +57,10 @@ PARAMS = {
     # can't dominate a player's rate. Improved both 2024/25 and 2025/26; doesn't clip players
     # whose big numbers are spread across many matches.
     "match_cap": {"xg": 1.0, "xa": 0.7},
-    "dc_dispersion": 1.0,       # game-to-game spread of defensive contributions (1 = Poisson)
+    # Game-to-game spread of defensive contributions (1 = Poisson). 1.0 slightly under-counts how often
+    # players reach the threshold in total (543 vs 665 hits in 2025/26), but a bigger spread hands the
+    # extra chances to players who rarely get there and made unseen-gameweek predictions worse.
+    "dc_dispersion": 1.0,
     "conceded_shape": 1000,     # uncertainty in a team's expected goals against (lower = more)
     "newcomer_prior_minutes": 90,  # how much the position/team average counts for players with no PL history
     # Attacking output multiplier for players with no Premier League track record (fades out over
@@ -510,6 +514,8 @@ class PlayerModel:
                 if injured_until is None or kickoff > injured_until:
                     break
                 minute_rows.pop()
+        if params["skip_return_gap"]:
+            minute_rows = drop_absence_before_return(minute_rows)
 
         last = [s for s, w in past if w == 1.0]
         if last:
@@ -696,6 +702,22 @@ class PlayerModel:
         # Bonus goes mostly to players with goals, assists and (for defenders/keepers) clean sheets
         returns = goals + 0.6 * assists + (0.6 if clean and pos in ("GKP", "DEF") else 0.0)
         return pts, returns
+
+
+def drop_absence_before_return(minute_rows):
+    """A regular who has just come back after a run of blank games was almost certainly injured or
+    suspended for them, not dropped (dropped regulars rarely walk straight back into the team).
+    Remove those blanks so they don't count against his place, even when FPL's news doesn't say."""
+    if len(minute_rows) < 4 or minute_rows[-1][1]["minutes"] == 0:
+        return minute_rows
+    i = len(minute_rows) - 2
+    while i >= 0 and minute_rows[i][1]["minutes"] == 0:
+        i -= 1
+    gap = len(minute_rows) - 2 - i
+    before = [r for _, r in minute_rows[max(0, i - 2):i + 1]]
+    if gap >= 2 and len(before) >= 2 and sum(r["starts"] for r in before) >= 2:
+        return minute_rows[:i + 1] + minute_rows[-1:]
+    return minute_rows
 
 
 def shrunk_mean(pairs, prior, k):
