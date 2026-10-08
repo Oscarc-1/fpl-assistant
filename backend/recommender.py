@@ -2,13 +2,14 @@
 import os
 import threading
 import time
+from datetime import datetime
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from fpl import (get_bootstrap_data, get_fixtures, get_all_element_summaries, get_current_gameweek,
                  get_active_squad, get_entry_history, get_entry_transfers, cached_get)
 from accuracy import save_snapshot
-from model import Predictor
+from model import AdjustedPredictor, Overrides, Predictor
 from chips import chip_plan
 from optimizer import best_single_transfers, plan_transfers
 from planner import (FT_VALUE, FUTURE_WEIGHTS, HIT_COST, HORIZON, MIN_GAIN_PER_HIT, MIN_GAIN_PER_MOVE,
@@ -46,17 +47,19 @@ def get_predictor():
     return _predictor_cache["predictor"]
 
 
-def cached_result(kind, team_id, compute):
+def cached_result(kind, team_id, compute, overrides=None):
     """Reuse a team's results until the model is rebuilt (the planning is slow), and never compute
-    the same team twice at once (e.g. the background warm-up and a visitor)."""
-    with _team_locks[(kind, team_id)]:
+    the same team (with the same overrides) twice at once (e.g. the background warm-up and a visitor)."""
+    overrides = overrides or Overrides()
+    key = (kind, team_id, overrides.key)
+    with _team_locks[key]:
         get_predictor()
         built = _predictor_cache["built"]
-        hit = _results.get((kind, team_id))
+        hit = _results.get(key)
         if hit and hit[0] == built:
             return hit[1]
-        result = compute(team_id)
-        _results[(kind, team_id)] = (built, result)
+        result = compute(team_id, overrides)
+        _results[key] = (built, result)
         if len(_results) > 100:  # keep memory bounded: drop the oldest entries
             for key in sorted(_results, key=lambda k: _results[k][0])[:20]:
                 _results.pop(key, None)
@@ -74,8 +77,11 @@ def warm_example():
     threading.Thread(target=run, daemon=True).start()
 
 
-def analyse_team(team_id):
+def analyse_team(team_id, overrides=None):
+    overrides = overrides or Overrides()
     predictor = get_predictor()
+    if overrides:
+        predictor = AdjustedPredictor(predictor, overrides)
     bootstrap = predictor.bootstrap
     gw = predictor.before_gw
     last_gw = max(e["id"] for e in bootstrap["events"])
@@ -182,7 +188,7 @@ def analyse_team(team_id):
     counts = list(range(0, min(free + 2, 5) + 1))
     with ThreadPoolExecutor(max_workers=len(counts)) as pool:
         solved = pool.map(lambda k: plan_transfers(xp_by_gw, gws, weights, elements, squad, sell, bank, free,
-                                                   FT_VALUE, moves_now=k), counts)
+                                                   FT_VALUE, moves_now=k, keep=overrides.keep), counts)
     plans = {k: plan for k, plan in zip(counts, solved) if plan}
     base = plans[0]["value"]
     options = []
@@ -212,7 +218,8 @@ def analyse_team(team_id):
 
     # Alternatives: the best single transfer for each player you could sell
     alternatives = [{"move": describe({"out": [o], "in": [i]})[0], "gain": round(g, 1)}
-                    for g, o, i in best_single_transfers(xp_by_gw, gws, weights, elements, squad, sell, bank)]
+                    for g, o, i in best_single_transfers(xp_by_gw, gws, weights, elements, squad, sell, bank,
+                                                         keep=overrides.keep)]
 
     # --- top players by position (this gameweek) ---
     top_players = {}
@@ -227,13 +234,14 @@ def analyse_team(team_id):
         } for pid in best]
 
     # Everything the chip planner needs, kept so /chips doesn't redo the transfer plans
-    _chip_context[team_id] = {
+    _chip_context[(team_id, overrides.key)] = {
         "built": _predictor_cache["built"], "history": history, "squad": squad,
         "plan_weeks": plans[recommended["transfers"]]["weeks"], "sell": sell, "bank": bank, "free": free,
     }
 
     return {
         "team_id": team_id,
+        "overrides": {"starts": sorted(overrides.starts), "out": sorted(overrides.out), "keep": sorted(overrides.keep)},
         "team_name": entry.get("name"),
         "gameweek": gw,
         "gameweeks": gws,
@@ -257,9 +265,13 @@ def squad_alerts(squad, elements, predictor, gw, player_info):
         info = player_info(pid)
         if p["status"] != "a" or (p["chance_of_playing_next_round"] or 100) < 100:
             chance = p["chance_of_playing_next_round"]
+            updated = p.get("news_added")
+            age = (time.time() - datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp()) / 86400 if updated else None
             alerts.append({"player": info, "type": "injury",
                            "text": p["news"] or "Flagged by FPL",
-                           "detail": f"{chance}% chance of playing" if chance is not None else None})
+                           "detail": f"{chance}% chance of playing" if chance is not None else None,
+                           # FPL often leaves flags unchanged for weeks; say how old the news is
+                           "updated": updated, "stale": age is not None and age > 14})
         projections = p.get("price_change_projections") or []
         if projections and not p.get("price_change_locked_until"):
             likelihood = projections[0]["likelihood"]
@@ -279,13 +291,16 @@ def squad_alerts(squad, elements, predictor, gw, player_info):
     return alerts
 
 
-def plan_chips(team_id):
+def plan_chips(team_id, overrides=None):
     """The chip plan for a team (slow: many optimiser runs), reusing the last analysis's transfer plan."""
+    overrides = overrides or Overrides()
     predictor = get_predictor()
-    context = _chip_context.get(team_id)
+    if overrides:
+        predictor = AdjustedPredictor(predictor, overrides)
+    context = _chip_context.get((team_id, overrides.key))
     if not context or context["built"] != _predictor_cache["built"]:
-        analyse_team(team_id)
-        context = _chip_context[team_id]
+        analyse_team(team_id, overrides)
+        context = _chip_context[(team_id, overrides.key)]
     bootstrap = predictor.bootstrap
     elements = {p["id"]: p for p in bootstrap["elements"]}
     teams = {t["id"]: t["short_name"] for t in bootstrap["teams"]}

@@ -361,6 +361,8 @@
     table.planner td:first-child { text-align: left; white-space: nowrap; padding-right: 0.75rem; }
     .cell.benched { opacity: 0.4; }
     .warn { color: var(--warn); }
+    .override { margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--line); }
+    .override .tab { font-size: 0.78rem; padding: 0.2rem 0.65rem; }
 
     .cell { border-radius: 5px; padding: 0.25rem 0.2rem; line-height: 1.2; }
     .cell .opp { font-size: 0.65rem; color: var(--muted); display: block; }
@@ -681,6 +683,37 @@
     // Served by Flask (locally or on Render), CONFIG is empty and everything is same-origin.
     const CONFIG = window.XPOINTS_CONFIG || {};
 
+    // What the manager knows that the model doesn't, per team: {starts: [ids], out: [ids], keep: [ids]}
+    function loadOverrides(teamId) {
+      try { return JSON.parse(localStorage.getItem(`xpointsOverrides:${teamId}`)) || { starts: [], out: [], keep: [] }; }
+      catch (e) { return { starts: [], out: [], keep: [] }; }
+    }
+    function saveOverrides(teamId, o) {
+      try { localStorage.setItem(`xpointsOverrides:${teamId}`, JSON.stringify(o)); } catch (e) {}
+    }
+    function overrideQuery(teamId) {
+      const o = loadOverrides(teamId);
+      return ["starts", "out", "keep"].filter(k => o[k].length).map(k => `&${k}=${o[k].join(",")}`).join("");
+    }
+    // Overrides need the live server: the static site's example team is pre-calculated without them
+    function overridesAvailable(teamId) {
+      return !(CONFIG.static && isExample(teamId));
+    }
+
+    function setOverride(teamId, playerId, kind) {
+      const o = loadOverrides(teamId);
+      if (kind === "keep") {
+        o.keep = o.keep.includes(playerId) ? o.keep.filter(x => x !== playerId) : [...o.keep, playerId];
+      } else {
+        o.starts = o.starts.filter(x => x !== playerId);
+        o.out = o.out.filter(x => x !== playerId);
+        if (kind === "starts") o.starts.push(playerId);
+        if (kind === "out") o.out.push(playerId);
+      }
+      saveOverrides(teamId, o);
+      analyse();
+    }
+
     function isExample(teamId) {
       return CONFIG.static && String(teamId) === String(CONFIG.exampleTeamId);
     }
@@ -739,7 +772,7 @@
       $("results").style.display = "none";
 
       try {
-        const data = await getJSON(`/analysis?team_id=${encodeURIComponent(teamId)}`);
+        const data = await getJSON(`/analysis?team_id=${encodeURIComponent(teamId)}${overridesAvailable(teamId) ? overrideQuery(teamId) : ""}`);
         if (!data.captain_options) {
           throw new Error("The app's server is running an older version than this page. " +
             "Restart it in Terminal (Ctrl + C, then run it again) and try again.");
@@ -762,6 +795,7 @@
     }
 
     function render(data) {
+      currentTeamId = data.team_id;
       renderStats(data);
       renderAlerts(data.alerts);
       renderLineup(data.squad);
@@ -788,7 +822,8 @@
       $("alerts").innerHTML = alerts.map(a => `
         <div class="alert">
           <span class="alert-dot ${a.type}"></span>
-          <div><b style="font-weight:500">${a.player.name}</b>: ${a.text}${a.detail ? ` <span class="row-sub">(${a.detail})</span>` : ""}</div>
+          <div><b style="font-weight:500">${a.player.name}</b>: ${a.text}${a.detail ? ` <span class="row-sub">(${a.detail})</span>` : ""}
+            ${a.updated ? `<span class="row-sub ${a.stale ? "warn" : ""}"> · FPL news from ${new Date(a.updated).toLocaleDateString([], { day: "numeric", month: "short" })}${a.stale ? ": may be out of date, use the override below if you know better" : ""}</span>` : ""}</div>
         </div>`).join("");
     }
 
@@ -799,8 +834,30 @@
       return `<span class="row-sub ${pct >= 60 ? "warn" : "down"}">${pct}% to start</span>`;
     }
 
+    let currentTeamId = null;
+
+    function overrideControls(p) {
+      if (!overridesAvailable(currentTeamId)) return "";
+      const o = loadOverrides(currentTeamId);
+      const status = o.starts.includes(p.id) ? "starts" : o.out.includes(p.id) ? "out" : "auto";
+      const btn = (kind, label) => `<button class="tab ${status === kind ? "active" : ""}"
+          onclick="event.stopPropagation(); setOverride(currentTeamId, ${p.id}, '${kind}')">${label}</button>`;
+      return `
+        <div class="override">
+          <div class="row-sub" style="margin-bottom:0.3rem;">Know something the model doesn't?</div>
+          <div class="tabs" style="margin:0;">
+            ${btn("auto", "Auto")}${btn("starts", "Will start")}${btn("out", "Out this GW")}
+            <button class="tab ${o.keep.includes(p.id) ? "active" : ""}"
+              onclick="event.stopPropagation(); setOverride(currentTeamId, ${p.id}, 'keep')">${o.keep.includes(p.id) ? "Keeping" : "Keep (don't sell)"}</button>
+          </div>
+        </div>`;
+    }
+
     function squadRow(p) {
       const badge = p.captain ? `<span class="badge">C</span>` : p.vice ? `<span class="badge vice">V</span>` : "";
+      const o = currentTeamId && overridesAvailable(currentTeamId) ? loadOverrides(currentTeamId) : { starts: [], out: [], keep: [] };
+      const mine = [o.starts.includes(p.id) && "you: will start", o.out.includes(p.id) && "you: out", o.keep.includes(p.id) && "keeping"]
+        .filter(Boolean).map(t => `<span class="pill">${t}</span>`).join("");
       const next = p.xp_by_gw[0].fixtures.join(", ") || "No fixture";
       const parts = Object.entries(p.breakdown)
         .filter(([, v]) => Math.abs(v) >= 0.05)
@@ -811,7 +868,7 @@
           <div class="row-main">
             <span class="pos">${p.position}</span>
             <div>
-              <div class="row-title">${p.name}${badge}</div>
+              <div class="row-title">${p.name}${badge}${mine}</div>
               <div class="row-sub">${p.team} · ${next}</div>
             </div>
           </div>
@@ -824,6 +881,7 @@
           <div style="margin-bottom:0.4rem;">If he starts:</div>
           <div class="breakdown-grid">${parts}</div>
           <div style="margin-top:0.5rem;">Next 6 GWs: ${p.xp_horizon} pts · sells for £${p.selling_price}m</div>
+          ${overrideControls(p)}
         </div>`;
     }
 
@@ -950,7 +1008,7 @@
       $("chipsLoading").classList.add("visible");
       const stopTimer = startTimer("chipsTimer");
       try {
-        renderChips(await getJSON(`/chips?team_id=${encodeURIComponent(teamId)}`));
+        renderChips(await getJSON(`/chips?team_id=${encodeURIComponent(teamId)}${overridesAvailable(teamId) ? overrideQuery(teamId) : ""}`));
       } catch (err) {
         $("chipsList").innerHTML = `<div class="empty">Couldn't plan chips: ${err.message}</div>`;
       } finally {

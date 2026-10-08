@@ -142,7 +142,7 @@ def squad_value(squad, xp, gws, weights, positions):
     return total
 
 
-def best_single_transfers(xp, gws, weights, elements, current, sell, bank, limit=5):
+def best_single_transfers(xp, gws, weights, elements, current, sell, bank, limit=5, keep=()):
     """The best single transfer for each player you could sell, best first (one per player sold)."""
     positions = {p: e["element_type"] for p, e in elements.items()}
     pool = candidates(xp, gws, weights, positions, elements, current)
@@ -152,6 +152,8 @@ def best_single_transfers(xp, gws, weights, elements, current, sell, bank, limit
         clubs[elements[p]["team"]] += 1
     options = []
     for out in current:
+        if out in keep:
+            continue
         best = None
         for inn in pool:
             if inn in current or positions[inn] != positions[out]:
@@ -172,13 +174,14 @@ def best_single_transfers(xp, gws, weights, elements, current, sell, bank, limit
 
 
 def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_value,
-                   moves_now=None, max_banked=5, hit_cost=4):
+                   moves_now=None, max_banked=5, hit_cost=4, keep=()):
     """Plan transfers week by week over `gws` (the first entry is the upcoming gameweek).
 
     Tracks free transfers (+1 a week, up to `max_banked`), the bank, and hits week by week, so
     "make it now with a hit" is weighed against "make it next week for free". Free transfers still
     banked after the horizon are worth `ft_value` each (flexibility for injuries and later moves).
     `moves_now` fixes how many transfers are made this week (None = let the plan decide).
+    `keep`: players the manager won't sell (e.g. they know he's about to return from injury).
     """
     positions = {p: e["element_type"] for p, e in elements.items()}
     pool = candidates(xp, gws, weights, positions, elements, current)
@@ -241,6 +244,10 @@ def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_val
             prob += cap[p, g] <= xi[p, g]
     if moves_now is not None:
         prob += pulp.lpSum(buy[p, gws[0]] for p in pool) == moves_now
+    for p in keep:
+        if p in current:
+            for g in gws:
+                prob += squad[p, g] == 1
     objective.append(ft_value * ft_end)
     prob += pulp.lpSum(objective)
 

@@ -959,3 +959,47 @@ def starting_slots(summaries, players, fixtures_by_id, before_gw, params):
 def logit(p):
     p = min(max(p, 0.001), 0.999)
     return math.log(p / (1 - p))
+
+
+NAILED = 0.96  # start chance used when the manager says a player will start (fit regulars' typical rate)
+
+
+class Overrides:
+    """What a manager knows that the model doesn't: players who will start, who are out this
+    gameweek, and who they won't sell. Hashable, so results can be cached per set of overrides."""
+
+    def __init__(self, starts=(), out=(), keep=()):
+        self.starts = frozenset(starts)
+        self.out = frozenset(out) - self.starts
+        self.keep = frozenset(keep)
+        self.key = (tuple(sorted(self.starts)), tuple(sorted(self.out)), tuple(sorted(self.keep)))
+
+    def __bool__(self):
+        return bool(self.starts or self.out or self.keep)
+
+
+class AdjustedPredictor:
+    """A view of the shared Predictor with one manager's overrides applied. The shared model (and
+    everyone else's results) are untouched; anything not overridden passes straight through."""
+
+    def __init__(self, base, overrides):
+        self.base = base
+        self.overrides = overrides
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def start_chance(self, player_id, gw):
+        if player_id in self.overrides.out and gw == self.base.before_gw:
+            return 0.0
+        if player_id in self.overrides.starts:
+            return NAILED if self.base.fixture_count(self.base.players[player_id].team, gw) else 0.0
+        return self.base.start_chance(player_id, gw)
+
+    def xp(self, player_id, gw):
+        if player_id in self.overrides.out and gw == self.base.before_gw:
+            return 0.0
+        if player_id in self.overrides.starts:
+            return NAILED * self.base.points_if_starts(player_id, gw)
+        return self.base.xp(player_id, gw)
+
