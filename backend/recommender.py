@@ -188,7 +188,8 @@ def analyse_team(team_id, overrides=None):
     counts = list(range(0, min(free + 2, 5) + 1))
     with ThreadPoolExecutor(max_workers=len(counts)) as pool:
         solved = pool.map(lambda k: plan_transfers(xp_by_gw, gws, weights, elements, squad, sell, bank, free,
-                                                   FT_VALUE, moves_now=k, keep=overrides.keep), counts)
+                                                   FT_VALUE, moves_now=k, keep=overrides.keep,
+                                                   hit_margin=MIN_GAIN_PER_HIT), counts)
     plans = {k: plan for k, plan in zip(counts, solved) if plan}
     base = plans[0]["value"]
     options = []

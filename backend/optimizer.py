@@ -15,6 +15,7 @@ SQUAD = {1: 2, 2: 5, 3: 5, 4: 3}
 XI_MIN = {1: 1, 2: 3, 3: 2, 4: 1}
 XI_MAX = {1: 1, 2: 5, 3: 5, 4: 3}
 CLUB_LIMIT = 3
+BIG = 20  # larger than any number of transfers in a week
 BENCH_WEIGHT = {1: 0.02, 2: 0.1, 3: 0.1, 4: 0.1}  # bench keepers almost never come on
 CANDIDATES_PER_POSITION = 25  # plans were identical with 45; smaller models solve with less memory
 
@@ -174,7 +175,7 @@ def best_single_transfers(xp, gws, weights, elements, current, sell, bank, limit
 
 
 def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_value,
-                   moves_now=None, max_banked=5, hit_cost=4, keep=()):
+                   moves_now=None, max_banked=5, hit_cost=4, keep=(), hit_margin=0.0):
     """Plan transfers week by week over `gws` (the first entry is the upcoming gameweek).
 
     Tracks free transfers (+1 a week, up to `max_banked`), the bank, and hits week by week, so
@@ -182,6 +183,8 @@ def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_val
     banked after the horizon are worth `ft_value` each (flexibility for injuries and later moves).
     `moves_now` fixes how many transfers are made this week (None = let the plan decide).
     `keep`: players the manager won't sell (e.g. they know he's about to return from injury).
+    `hit_margin`: extra caution per hit in later weeks (a hit there must beat waiting by this much
+    too), so follow-up plans don't pencil in marginal hits. Not counted in the returned value.
     """
     positions = {p: e["element_type"] for p, e in elements.items()}
     pool = candidates(xp, gws, weights, positions, elements, current)
@@ -221,10 +224,16 @@ def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_val
         # Free transfers: hits for moves beyond them; unused ones roll over (+1 next week, capped)
         if i == 0:
             prob += ft[g] == free
+        # Hits are exactly max(0, moves - free transfers). Without pinning this down, the solver
+        # could "pay" a hit to bank an extra free transfer for next week, which FPL doesn't allow.
+        no_hit = pulp.LpVariable(f"nohit_{g}", cat="Binary")  # 1 when moves fit in the free transfers
         prob += hits[g] >= n_moves - ft[g]
+        prob += hits[g] <= n_moves - ft[g] + BIG * no_hit
+        prob += hits[g] <= BIG * (1 - no_hit)
+        # Unused free transfers roll over (+1 next week, capped at max_banked)
         nxt = ft[gws[i + 1]] if i + 1 < len(gws) else ft_end
         prob += nxt <= ft[g] - n_moves + hits[g] + 1
-        objective.append(-hit_cost * hits[g])
+        objective.append(-(hit_cost + (hit_margin if i > 0 else 0.0)) * hits[g])
         # Squad and lineup rules
         for pos, count in SQUAD.items():
             prob += pulp.lpSum(squad[p, g] for p in pool if positions[p] == pos) == count
@@ -265,4 +274,6 @@ def plan_transfers(xp, gws, weights, elements, current, sell, bank, free, ft_val
             "hits": round(hits[g].value()),
             "squad": [p for p in pool if squad[p, g].value() > 0.5],
         })
-    return {"weeks": weeks, "value": pulp.value(prob.objective), "ft_end": round(ft_end.value())}
+    # Report real points: add back the caution margin, which isn't a real cost
+    value = pulp.value(prob.objective) + hit_margin * sum(w["hits"] for w in weeks[1:])
+    return {"weeks": weeks, "value": value, "ft_end": round(ft_end.value())}
