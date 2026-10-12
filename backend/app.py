@@ -4,6 +4,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from accuracy import accuracy_report
 from fpl import get_bootstrap_data, get_fixtures, get_all_element_summaries, get_user_squad
+from live import live_team
 from model import Overrides
 from recommender import (EXAMPLE_TEAM_ID, WARM_EXAMPLE, analyse_team, cached_result, get_predictor,
                          plan_chips, warm_example)
@@ -103,6 +104,17 @@ def chips():
         return jsonify({"error": "Enter your numeric FPL team ID"}), 400
     try:
         return jsonify(cached_result("chips", int(team_id), plan_chips, parse_overrides()))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/live")
+def live():
+    team_id = request.args.get("team_id", "").strip()
+    if not team_id.isdigit():
+        return jsonify({"error": "Enter your numeric FPL team ID"}), 400
+    try:
+        return jsonify(live_team(int(team_id), get_bootstrap_data()))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

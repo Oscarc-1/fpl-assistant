@@ -46,6 +46,7 @@ def main():
         "chips-example": fetch(client, f"/chips?team_id={EXAMPLE}"),
         "accuracy-example": fetch(client, f"/accuracy?team_id={EXAMPLE}"),
         "price-changes": fetch(client, "/price-changes"),
+        "live-example": fetch(client, f"/live?team_id={EXAMPLE}"),
     }
     for name, data in files.items():
         with open(os.path.join(SITE, "data", f"{name}.json"), "w") as f:

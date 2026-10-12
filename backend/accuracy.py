@@ -32,10 +32,19 @@ def save_snapshot(predictor):
         return
     path = snapshot_path(predictor.bootstrap, gw)
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Also record what FPL said and what the model assumed at this moment, so we can later measure
+    # e.g. how often a (possibly weeks-old) "75%" flag actually plays: flags get cleared once a
+    # player plays, so they can't be reconstructed afterwards.
+    flags = {str(p["id"]): {"status": p["status"], "chance": p["chance_of_playing_next_round"],
+                            "news": p["news"], "news_added": p["news_added"]}
+             for p in predictor.bootstrap["elements"] if p["status"] != "a" or p["news"]}
     data = {
         "source": "live",
         "saved": datetime.now(timezone.utc).isoformat(),
         "xp": {str(pid): round(predictor.xp(pid, gw), 3) for pid in predictor.players},
+        "start_chance": {str(pid): round(predictor.start_chance(pid, gw), 3) for pid in predictor.players
+                         if predictor.xp(pid, gw) >= 0.3},
+        "flags": flags,
     }
     with open(path, "w") as f:
         json.dump(data, f)

@@ -484,6 +484,7 @@
       <nav class="nav" id="nav">
         <div class="nav-label">Your team</div>
         <a href="#overview">Overview</a>
+        <a href="#live" class="disabled" data-team>Live points</a>
         <a href="#lineup" class="disabled" data-team>Best lineup</a>
         <a href="#transfers" class="disabled" data-team>Transfers</a>
         <a href="#planner" class="disabled" data-team>Next 6 gameweeks</a>
@@ -532,6 +533,16 @@
               <h2>Alerts</h2>
               <div class="list" id="alerts"></div>
             </div>
+          </section>
+
+          <section id="live">
+            <h2>Live points</h2>
+            <div class="status" id="liveLoading"><div class="spinner"></div>Loading live points…</div>
+            <div id="liveSummary"></div>
+            <div class="list" id="liveStarters"></div>
+            <h3>Bench</h3>
+            <div class="list" id="liveBench"></div>
+            <p class="hint" id="liveNote"></p>
           </section>
 
           <section id="lineup">
@@ -725,7 +736,7 @@
       const path = u.pathname.replace(/^.*\//, "/");
       if (path === "/config") return "data/config.json";
       if (path === "/price-changes") return "data/price-changes.json";
-      if (["/analysis", "/chips", "/accuracy"].includes(path) && (isExample(team) || (path === "/accuracy" && !team))) {
+      if (["/analysis", "/chips", "/accuracy", "/live"].includes(path) && (isExample(team) || (path === "/accuracy" && !team))) {
         return `data${path}-example.json`;
       }
       return CONFIG.api + path + u.search;
@@ -805,6 +816,7 @@
       renderTopTabs();
       renderPlanner(data.squad, data.gameweeks);
       loadChips(data.team_id);
+      loadLive(data.team_id);
     }
 
     function renderStats(d) {
@@ -1000,6 +1012,72 @@
           <td><b>${p.xp_horizon}</b></td>
         </tr>`).join("");
       $("plannerTable").innerHTML = head + rows;
+    }
+
+    let liveTimer = null;
+
+    async function loadLive(teamId) {
+      clearTimeout(liveTimer);
+      $("liveLoading").classList.add("visible");
+      try {
+        const data = await getJSON(`/live?team_id=${encodeURIComponent(teamId)}`);
+        renderLive(data);
+        // Refresh every minute while matches are being played (not on the pre-calculated static example)
+        if (data.matches.live > 0 && !isExample(teamId)) liveTimer = setTimeout(() => loadLive(teamId), 60000);
+      } catch (err) {
+        $("liveSummary").innerHTML = `<div class="empty">Couldn't load live points: ${err.message}</div>`;
+      } finally {
+        $("liveLoading").classList.remove("visible");
+      }
+    }
+
+    function renderLive(d) {
+      const stat = (label, value) => `<div><div class="stat-label">${label}</div><div class="stat-value">${value}</div></div>`;
+      const status = d.finished ? "final" : d.matches.live ? `${d.matches.live} match${d.matches.live > 1 ? "es" : ""} live` :
+        d.matches.upcoming ? `${d.matches.upcoming} still to play` : "all matches played";
+      $("liveSummary").innerHTML = `<div class="stats">` +
+        stat(`GW${d.gameweek} points`, d.live_total) +
+        (d.projected_total !== d.live_total ? stat("With auto-subs", d.projected_total) : "") +
+        (d.average != null ? stat("Average", d.average) : "") +
+        (d.highest != null ? stat("Highest", d.highest) : "") +
+        stat("Matches", status) + `</div>`;
+
+      const fixtureText = f => {
+        const opp = `${f.opponent} (${f.home ? "H" : "A"})`;
+        if (f.state === "finished") return `${opp} · FT ${f.score}`;
+        if (f.state === "live") return `${opp} · live ${f.minute}' ${f.score}`;
+        return `${opp} · ${new Date(f.kickoff).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`;
+      };
+      const row = p => {
+        const shown = (p.points + p.provisional_bonus) * Math.max(p.multiplier, p.slot > 11 ? 1 : 0);
+        const badge = p.captain ? `<span class="badge">C</span>` : p.vice ? `<span class="badge vice">V</span>` : "";
+        const live = p.fixtures.some(f => f.state === "live");
+        const diff = p.predicted != null && p.fixtures.some(f => f.state !== "upcoming")
+          ? `<span class="diff ${p.points - p.predicted >= 0 ? "up" : "down"}">predicted ${p.predicted}</span>` : "";
+        return `
+          <div class="row">
+            <div class="row-main">
+              <span class="pos">${p.position}</span>
+              <div>
+                <div class="row-title">${p.name}${badge}${live ? `<span class="pill">Live</span>` : ""}</div>
+                <div class="row-sub">${p.fixtures.map(fixtureText).join(", ") || "No match this gameweek"}${p.minutes ? ` · ${p.minutes}'` : ""}</div>
+                ${p.events.length ? `<div class="row-sub">${p.events.join(", ")}</div>` : ""}
+              </div>
+            </div>
+            <div class="row-right">
+              <div class="row-value">${shown}${p.multiplier > 1 ? `<span class="row-sub"> (×${p.multiplier})</span>` : ""}</div>
+              <div class="row-sub">${diff}</div>
+            </div>
+          </div>`;
+      };
+      $("liveStarters").innerHTML = d.players.filter(p => p.slot <= 11).map(row).join("");
+      $("liveBench").innerHTML = d.players.filter(p => p.slot > 11).map(row).join("");
+      const notes = [];
+      if (d.hits) notes.push(`Includes a −${d.hits} point transfer hit.`);
+      if (d.players.some(p => p.provisional_bonus)) notes.push("Provisional bonus is worked out from each match's live bonus table (BPS) until FPL confirms it.");
+      d.autosubs.forEach(a => notes.push(a.captain ? `${a.captain} would take the captaincy.` : `Auto-sub: ${a.in} would come on for ${a.out}.`));
+      notes.push(`Updated ${new Date(d.updated).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${d.matches.live ? ", refreshing every minute while matches are live" : ""}.`);
+      $("liveNote").textContent = notes.join(" ");
     }
 
     async function loadChips(teamId) {
