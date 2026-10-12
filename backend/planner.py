@@ -1,6 +1,7 @@
 """Squad decisions built on the xP model: lineup, free transfers, selling prices and chips.
 The squad-building decisions (transfers, Wildcard, Free Hit) are solved in optimizer.py."""
 from collections import Counter
+from itertools import combinations
 
 FORMATION_MIN = {1: 1, 2: 3, 3: 2, 4: 1}
 FORMATION_MAX = {1: 1, 2: 5, 3: 5, 4: 3}
@@ -84,3 +85,115 @@ def best_lineup(squad, positions, xp):
     bench_outfield = sorted([p for p in squad if p not in starters and positions[p] != 1], key=lambda p: -xp[p])
     bench_gk = [p for p in squad if p not in starters and positions[p] == 1]
     return starters, bench_gk + bench_outfield
+
+
+# ---------- lineup with auto-sub cover ----------
+
+def _valid(counts):
+    return all(FORMATION_MIN[t] <= counts[t] <= FORMATION_MAX[t] for t in FORMATION_MIN)
+
+
+def lineup_value(xi, bench, positions, profiles, draws):
+    """Average points of an XI (without the captain bonus) over simulated gameweeks, applying FPL's
+    auto-subs: a starter who doesn't play at all is replaced by the first bench player (in order)
+    who played, keeping a valid formation and keeper-for-keeper. A starter who only comes off the
+    bench plays, so he blocks the auto-sub: the real downside of starting a doubtful player."""
+    total = 0.0
+    for u in draws:
+        state = {}
+        for p in xi + bench:
+            ps, psub, pts_start, pts_sub = profiles[p]
+            x = u[p]
+            state[p] = pts_start if x < ps else pts_sub if x < ps + psub else None
+        counts = {t: sum(1 for p in xi if positions[p] == t) for t in FORMATION_MIN}
+        used = set()
+        points = 0.0
+        for p in xi:
+            if state[p] is not None:
+                points += state[p]
+                continue
+            for b in bench:
+                if b in used or state[b] is None or (positions[b] == 1) != (positions[p] == 1):
+                    continue
+                after = dict(counts)
+                after[positions[p]] -= 1
+                after[positions[b]] += 1
+                if _valid(after):
+                    counts = after
+                    used.add(b)
+                    points += state[b]
+                    break
+        total += points
+    return total / len(draws)
+
+
+def captain_bonus(captain, vice, profiles):
+    """Expected extra points from the armband: the captain's points again if he plays, otherwise
+    the vice-captain's (FPL passes the armband on when the captain doesn't play at all)."""
+    def expected(p):
+        ps, psub, a, b = profiles[p]
+        return ps * a + psub * b
+    ps, psub, _, _ = profiles[captain]
+    return expected(captain) + (1 - ps - psub) * expected(vice)
+
+
+def choose_lineup(squad, positions, profiles, n=600, seed=7):
+    """Best XI, bench order, captain and vice-captain, valuing auto-sub cover. A doubtful but good
+    player is often worth starting: if he doesn't play, the bench covers him.
+
+    Starts from the XI by expected points, then tries every single and double swap with the bench,
+    judged on the same simulated gameweeks (so differences aren't just noise)."""
+    import random
+    rng = random.Random(seed)
+    draws = [{p: rng.random() for p in squad} for _ in range(n)]
+
+    def expected(p):
+        ps, psub, a, b = profiles[p]
+        return ps * a + psub * b
+
+    def bench_order(bench):
+        # Keeper first (he can only replace a keeper), then outfielders by what they'd add if needed
+        keepers = [p for p in bench if positions[p] == 1]
+        outfield = sorted([p for p in bench if positions[p] != 1], key=lambda p: -expected(p))
+        return keepers + outfield
+
+    start, _ = best_lineup(squad, positions, {p: expected(p) for p in squad})
+    candidates = {frozenset(start)}
+    base_bench = [p for p in squad if p not in start]
+    for out in start:
+        for inn in base_bench:
+            candidates.add(frozenset(set(start) - {out} | {inn}))
+    for o1, o2 in combinations(start, 2):
+        for i1, i2 in combinations(base_bench, 2):
+            candidates.add(frozenset(set(start) - {o1, o2} | {i1, i2}))
+    valid = []
+    for xi in candidates:
+        # Never pick someone who won't play (e.g. marked out) over the expected-points lineup:
+        # the bench would cover him at best, and the page would show a player you know is out
+        if any(profiles[p][0] + profiles[p][1] == 0 and p not in start for p in xi):
+            continue
+        counts = {t: sum(1 for p in xi if positions[p] == t) for t in FORMATION_MIN}
+        if _valid(counts):
+            valid.append(sorted(xi, key=lambda p: (positions[p], -expected(p))))
+
+    def captaincy(xi):
+        ranked = sorted(xi, key=lambda p: -expected(p))[:5]
+        return max(((c, v) for c in ranked for v in ranked if v != c), key=lambda cv: captain_bonus(*cv, profiles))
+
+    def total(xi):
+        bench = bench_order([p for p in squad if p not in xi])
+        c, v = captaincy(xi)
+        return lineup_value(xi, bench, positions, profiles, draws) + captain_bonus(c, v, profiles)
+
+    # Quick screen on a subset of the simulations, then a full comparison of the best few
+    screen = draws[: max(n // 4, 100)]
+    def quick(xi):
+        bench = bench_order([p for p in squad if p not in xi])
+        return lineup_value(xi, bench, positions, profiles, screen)
+    shortlist = sorted(valid, key=quick, reverse=True)[:6]
+    if sorted(start, key=lambda p: (positions[p], -expected(p))) not in shortlist:
+        shortlist.append(sorted(start, key=lambda p: (positions[p], -expected(p))))
+    best = max(shortlist, key=total)
+    bench = bench_order([p for p in squad if p not in best])
+    captain, vice = captaincy(best)
+    return best, bench, captain, vice, total(best)

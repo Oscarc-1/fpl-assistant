@@ -547,7 +547,7 @@
 
           <section id="lineup">
             <h2>Best lineup</h2>
-            <p class="hint" style="margin:-0.5rem 0 1rem;">Points each player is predicted to score if he starts, with his chance of starting. The lineup and captain account for that chance. Tap a player to see where his points come from.</p>
+            <p class="hint" style="margin:-0.5rem 0 1rem;">Points each player is predicted to score if he starts, with his chance of starting. The lineup, bench order, captain and vice-captain are chosen with FPL's auto-subs in mind: a doubtful but good player can be worth starting, because if he doesn't play your bench covers him. Tap a player to see where his points come from.</p>
             <div class="list" id="lineupList"></div>
             <h3>Bench</h3>
             <div class="list" id="bench"></div>
@@ -882,6 +882,7 @@
             <div>
               <div class="row-title">${p.name}${badge}${mine}</div>
               <div class="row-sub">${p.team} · ${next}</div>
+              ${p.bench_cover ? `<div class="row-sub">Doubtful but worth starting: if he doesn't play, your bench covers him</div>` : ""}
             </div>
           </div>
           <div class="row-right">

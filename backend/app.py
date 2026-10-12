@@ -94,6 +94,7 @@ def analysis():
     try:
         return jsonify(cached_result("analysis", int(team_id), analyse_team, parse_overrides()))
     except Exception as e:
+        app.logger.exception("%s failed", request.path)
         return jsonify({"error": str(e)}), 500
 
 
@@ -105,6 +106,7 @@ def chips():
     try:
         return jsonify(cached_result("chips", int(team_id), plan_chips, parse_overrides()))
     except Exception as e:
+        app.logger.exception("%s failed", request.path)
         return jsonify({"error": str(e)}), 500
 
 
@@ -116,6 +118,7 @@ def live():
     try:
         return jsonify(live_team(int(team_id), get_bootstrap_data()))
     except Exception as e:
+        app.logger.exception("%s failed", request.path)
         return jsonify({"error": str(e)}), 500
 
 
@@ -128,6 +131,7 @@ def accuracy():
         return jsonify(accuracy_report(data, get_fixtures(), predictor_summaries(data),
                                        int(team_id) if team_id.isdigit() else None, get_user_squad))
     except Exception as e:
+        app.logger.exception("%s failed", request.path)
         return jsonify({"error": str(e)}), 500
 
 
@@ -185,6 +189,7 @@ def price_changes():
         })
 
     except Exception as e:
+        app.logger.exception("%s failed", request.path)
         return jsonify({"error": str(e)}), 500
 
 

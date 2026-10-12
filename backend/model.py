@@ -1035,3 +1035,28 @@ class AdjustedPredictor:
             return NAILED * self.base.points_if_starts(player_id, gw)
         return self.base.xp(player_id, gw)
 
+
+def appearance_profile(predictor, player_id, gw):
+    """How a player's gameweek could go: (chance he starts, chance he only comes off the bench,
+    expected points if he starts, expected points if he comes off the bench). If he doesn't play
+    at all, FPL auto-subs a bench player in, so lineup choices need these separately rather than
+    one blended number. Works with a plain Predictor or one with a manager's overrides."""
+    base = getattr(predictor, "base", predictor)
+    overrides = getattr(predictor, "overrides", None)
+    model = base.players[player_id]
+    fixtures = base.fixtures_by_gw_team[(gw, model.team)]
+    if not fixtures or (overrides and player_id in overrides.out and gw == base.before_gw):
+        return 0.0, 0.0, 0.0, 0.0
+    p_start = predictor.start_chance(player_id, gw)
+    fit = 1.0 if overrides and player_id in overrides.starts else base.fitness(model, gw)
+    p_sub = max(fit - p_start, 0.0) * model.p_sub
+    pts_start = base.points_if_starts(player_id, gw)
+    pen = base.penalty_share(player_id, gw)
+    if model.p_sub > 0:
+        as_sub = sum(model.fixture_points(f, base.ratings, base.scoring, base.deadlines[gw], 0.0, pen, 1.0)[0]
+                     for f in fixtures)
+        pts_sub = as_sub / model.p_sub
+    else:
+        pts_sub = 1.0
+    return p_start, p_sub, pts_start, pts_sub
+

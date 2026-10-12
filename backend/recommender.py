@@ -9,11 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from fpl import (get_bootstrap_data, get_fixtures, get_all_element_summaries, get_current_gameweek,
                  get_active_squad, get_entry_history, get_entry_transfers, cached_get)
 from accuracy import save_snapshot
-from model import AdjustedPredictor, Overrides, Predictor
+from model import AdjustedPredictor, Overrides, Predictor, appearance_profile
 from chips import chip_plan
 from optimizer import best_single_transfers, plan_transfers
 from planner import (FT_VALUE, FUTURE_WEIGHTS, HIT_COST, HORIZON, MIN_GAIN_PER_HIT, MIN_GAIN_PER_MOVE,
-                     best_lineup, free_transfers, selling_prices)
+                     best_lineup, choose_lineup, free_transfers, selling_prices)
 
 POSITION_NAMES = {1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 
@@ -124,12 +124,14 @@ def analyse_team(team_id, overrides=None):
 
     # --- lineup for this gameweek ---
     xp_now = {pid: predictor.xp(pid, gw) for pid in elements}
-    starters, bench = best_lineup(squad, positions, xp_now)
+    # Lineup, bench order, captain and vice chosen with FPL's auto-subs in mind: a doubtful but good
+    # player can be worth starting, because if he doesn't play the bench covers him
+    profiles = {g: {p: appearance_profile(predictor, p, g) for p in squad} for g in gws}
+    starters, bench, captain, vice, lineup_xp = choose_lineup(squad, positions, profiles[gw])
     ranked = sorted(starters, key=lambda p: -xp_now[p])
-    captain, vice = ranked[0], ranked[1]
 
     # Who starts in each week of the horizon (the lineup can change week to week)
-    starting_by_gw = {g: set(best_lineup(squad, positions, {p: predictor.xp(p, g) for p in squad})[0]) for g in gws}
+    starting_by_gw = {g: set(choose_lineup(squad, positions, profiles[g], n=200)[0]) for g in gws}
 
     def headline(pid, g):
         """What the page shows: points if he starts, plus his chance of starting.
@@ -153,11 +155,12 @@ def analyse_team(team_id, overrides=None):
             "captain": pid == captain,
             "vice": pid == vice,
             "breakdown": predictor.breakdown(pid, gw, if_starts=True),
+            # Starting despite a real chance of not playing: worth it, because the bench covers him
+            "bench_cover": pid in starters and profiles[gw][pid][0] < 0.85,
         })
         squad_rows.append(info)
     squad_rows.sort(key=lambda r: (not r["starting"], r["bench_order"] or 0,
                                    list(POSITION_NAMES.values()).index(r["position"]), -r["xp"]))
-    lineup_xp = sum(xp_now[p] for p in starters) + xp_now[captain]
 
     # Captain options: the top starters by predicted points, with their chance of a haul or a blank
     captain_options = []
